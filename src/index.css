@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@import "@fontsource/rubik/hebrew-400.css";
+@import "@fontsource/rubik/hebrew-500.css";
+@import "@fontsource/rubik/hebrew-600.css";
+@import "@fontsource/rubik/hebrew-700.css";
+@import "@fontsource/rubik/latin-400.css";
+@import "@fontsource/rubik/latin-500.css";
+@import "@fontsource/rubik/latin-600.css";
+@import "@fontsource/rubik/latin-700.css";
+
+@theme {
+  --font-sans: "Rubik", "Segoe UI", Tahoma, sans-serif;
+  --color-paper: #f6f5f2;
+  --color-ink: #1c1917;
+}
+
+html {
+  color-scheme: light;
+  background: #f6f5f2;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  background: #f6f5f2;
+  color: #1c1917;
+  font-family: Rubik, "Segoe UI", Tahoma, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+#root {
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+input,
+textarea {
+  font-size: 16px;
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet-rise {
+  animation: rise 280ms ease-out;
+}
+
+.backdrop-fade {
+  animation: fade 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-rise,
+  .backdrop-fade {
+    animation: none;
+  }
+}
