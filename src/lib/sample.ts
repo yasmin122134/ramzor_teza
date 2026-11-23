@@ -1,5 +1,28 @@
 import { addDays, startOfWeek, toDateKey } from './dates.ts'
-import type { DailyEntry, PersistedState } from '../types.ts'
+import type { DailyEntry, PersistedState, WorkMix } from '../types.ts'
+
+function entry(
+  date: string,
+  fields: {
+    workMix: WorkMix
+    dailyGoal: string
+    outputScore: number
+    effectiveHours: number
+    qualityIdleHours: number
+    badIdleHours: number
+    balanceScore: number
+    balanceTags: string[]
+    notes: string
+    nextStepBreadcrumb: string
+  },
+): DailyEntry {
+  return {
+    date,
+    isThesisDay: true,
+    isSample: true,
+    ...fields,
+  }
+}
 
 export function buildSampleEntries(today: Date): Record<string, DailyEntry> {
   const sunday = startOfWeek(today)
@@ -8,49 +31,49 @@ export function buildSampleEntries(today: Date): Record<string, DailyEntry> {
   const tue = toDateKey(addDays(sunday, 2))
 
   return {
-    [sun]: {
-      date: sun,
-      isThesisDay: true,
-      workType: 'maintenance',
+    [sun]: entry(sun, {
+      workMix: { builder: 0, drafting: 0, research: 10, maintenance: 90 },
       dailyGoal: 'סידור ביבליוגרפיה וגיבוי קבצים',
       outputScore: 1,
-      focusScore: 1,
+      effectiveHours: 1.5,
+      qualityIdleHours: 0.5,
+      badIdleHours: 2,
       balanceScore: 0,
       balanceTags: [],
       notes: 'היום נמרח על סידור תיקיות. לא נגעתי בכתיבה.',
-      isSample: true,
-    },
-    [mon]: {
-      date: mon,
-      isThesisDay: true,
-      workType: 'research',
+      nextStepBreadcrumb: 'לפתוח את קובץ הביבליוגרפיה ולסמן שלושה מקורות חסרים',
+    }),
+    [mon]: entry(mon, {
+      workMix: { builder: 0, drafting: 0, research: 80, maintenance: 20 },
       dailyGoal: 'קריאת שני מאמרים על שיטות מעורבות',
       outputScore: 2,
-      focusScore: 2,
+      effectiveHours: 2.5,
+      qualityIdleHours: 1,
+      badIdleHours: 0.5,
       balanceScore: 1,
       balanceTags: ['הפסקה בחוץ'],
       notes: 'סיימתי מאמר אחד וסימנתי ציטוטים לשני.',
-      isSample: true,
-    },
-    [tue]: {
-      date: tue,
-      isThesisDay: true,
-      workType: 'creative',
+      nextStepBreadcrumb: 'לסכם את המאמר השני בפסקה אחת',
+    }),
+    [tue]: entry(tue, {
+      workMix: { builder: 70, drafting: 20, research: 10, maintenance: 0 },
       dailyGoal: 'טיוטת תרשים זרימה למתודולוגיה',
       outputScore: 4,
-      focusScore: 3,
+      effectiveHours: 4,
+      qualityIdleHours: 0.5,
+      badIdleHours: 0,
       balanceScore: 2,
       balanceTags: ['שחייה', 'שינה טובה'],
       notes: 'התרשים סגור. נשאר לנסח את שלב גיוס המשתתפים.',
-      isSample: true,
-    },
+      nextStepBreadcrumb: 'לנסח את פסקת שיטת הגיוס מתחת לתרשים',
+    }),
   }
 }
 
 export function seedState(today: Date): PersistedState {
   return {
-    version: 1,
+    version: 2,
     entries: buildSampleEntries(today),
-    reflections: {},
+    weeks: {},
   }
 }

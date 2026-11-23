@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { DAY_LETTERS, formatWeekRange, startOfWeek, toDateKey, weekDates } from '../lib/dates.ts'
-import { LIGHT_TEXT, thesisDayLabel, workMeta } from '../lib/labels.ts'
+import { LIGHT_TEXT, formatHours, thesisDayLabel } from '../lib/labels.ts'
+import { DEFAULT_TARGET_HOURS } from '../lib/mix.ts'
 import { cn } from '../lib/cn.ts'
-import { dailyLight, dailyTotal, summarizeWeek } from '../lib/scoring.ts'
+import { dailyLight, dailyTotal, summarizeStoredWeek } from '../lib/scoring.ts'
 import { useThesis } from '../store/ThesisStore.tsx'
 import type { DailyEntry } from '../types.ts'
+import { MixPills, StackedMix } from './MixBar.tsx'
 import { LIGHT_TONE, TrafficBadge } from './TrafficLight.tsx'
 
 export function WeekView({
@@ -21,19 +23,30 @@ export function WeekView({
   onToday: () => void
   onOpenDay: (date: string) => void
 }) {
-  const { entries, reflections, updateReflection } = useThesis()
+  const { entries, weeks, updateWeek } = useThesis()
   const todayKey = toDateKey(new Date())
   const weekId = toDateKey(weekStart)
   const isCurrent = toDateKey(startOfWeek(new Date())) === weekId
   const days = weekDates(weekStart)
-  const weekEntries = days.flatMap((day) => {
-    const key = toDateKey(day)
-    return key in entries && entries[key] ? [entries[key]] : []
-  })
-  const summary = summarizeWeek(weekEntries)
+  const target = weeks[weekId]?.targetWeeklyHours ?? DEFAULT_TARGET_HOURS
+  const summary = summarizeStoredWeek(Object.values(entries), weekStart, target)
+  const crumb = latestBreadcrumb(entries, todayKey)
+  const completion = summary.schedulingCompletionPct
+
+  function changeTarget(delta: number) {
+    const next = Math.round((target + delta) * 2) / 2
+    updateWeek(weekId, { targetWeeklyHours: Math.min(60, Math.max(1, next)) })
+  }
 
   return (
     <div className="space-y-3">
+      {crumb ? (
+        <section className="rounded-3xl border border-teal-200 bg-teal-50 px-4 py-3">
+          <p className="text-xs font-medium text-teal-800">בוקר טוב – הצעד הבא שלך</p>
+          <p className="mt-1 text-base leading-6 font-semibold break-words text-ink">{crumb}</p>
+        </section>
+      ) : null}
+
       <section className="rounded-3xl border border-stone-200 bg-white px-3 py-3 shadow-sm">
         <p className="text-center text-lg font-semibold tracking-tight text-ink">{formatWeekRange(weekStart)}</p>
         {isCurrent ? <p className="mt-0.5 text-center text-xs text-teal-700">השבוע הנוכחי</p> : null}
@@ -83,12 +96,80 @@ export function WeekView({
             </div>
             <TrafficBadge light={summary.light} />
           </div>
+          {summary.penalized ? (
+            <p className="mt-3 text-sm leading-6 text-amber-950">
+              הופחת <bdi dir="ltr">0.5</bdi> כי שובצו פחות מ־<bdi dir="ltr">75%</bdi> מהיעד השבועי
+            </p>
+          ) : null}
+
+          <div className="mt-4">
+            <div className="flex items-end justify-between gap-3">
+              <p className="text-sm text-stone-500">שובצו בפועל / יעד שבועי</p>
+              <p className="text-sm font-semibold text-ink">
+                <bdi dir="ltr">
+                  {formatHours(summary.scheduledHours)} / {formatHours(summary.targetWeeklyHours)}
+                </bdi>{' '}
+                שעות
+              </p>
+            </div>
+            <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-stone-100">
+              <div
+                className={cn(
+                  'h-full rounded-full',
+                  completion === null ? 'bg-stone-200' : completion >= 80 ? 'bg-teal-600' : completion >= 75 ? 'bg-amber-400' : 'bg-rose-500',
+                )}
+                style={{ width: `${completion === null ? 0 : Math.min(100, completion)}%` }}
+              />
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-1 text-center">
+              <HourStat label="אפקטיבי" value={summary.effectiveHours} tone="text-indigo-800" />
+              <HourStat label="נבז איכותי" value={summary.qualityIdleHours} tone="text-teal-800" />
+              <HourStat label="נבז לא טוב" value={summary.badIdleHours} tone="text-rose-800" />
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-2 rounded-2xl bg-stone-50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">יעד שבועי</p>
+              <p className="text-xs text-stone-500">שעות לשבוע</p>
+            </div>
+            <div dir="ltr" className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="הקטנת היעד השבועי"
+                onClick={() => changeTarget(-1)}
+                className="size-11 rounded-xl border border-stone-200 bg-white text-lg text-stone-800"
+              >
+                −
+              </button>
+              <span className="w-8 text-center text-sm font-semibold text-ink">{formatHours(target)}</span>
+              <button
+                type="button"
+                aria-label="הגדלת היעד השבועי"
+                onClick={() => changeTarget(1)}
+                className="size-11 rounded-xl border border-stone-200 bg-white text-lg text-stone-800"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {summary.thesisDaysCount > 0 ? (
+            <div className="mt-4">
+              <p className="mb-2 text-sm text-stone-500">תמהיל השבוע</p>
+              <StackedMix mix={summary.workMix} />
+              <div className="mt-2">
+                <MixPills mix={summary.workMix} />
+              </div>
+            </div>
+          ) : null}
+
           {summary.flags.length > 0 ? (
             <div className="mt-4 space-y-2">
               {summary.flags.map((flag) => (
                 <p
                   key={flag.id}
-                  className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm leading-6 font-medium text-rose-950"
+                  className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm leading-6 font-medium break-words text-rose-950"
                 >
                   {flag.message}
                 </p>
@@ -121,11 +202,29 @@ export function WeekView({
       <WeeklyReflection
         key={weekId}
         weekId={weekId}
-        topAchievement={reflections[weekId]?.topAchievement ?? ''}
-        bottleneck={reflections[weekId]?.bottleneck ?? ''}
-        nextFirstStep={reflections[weekId]?.nextFirstStep ?? ''}
-        onChange={(patch) => updateReflection(weekId, patch)}
+        topAchievement={weeks[weekId]?.topAchievement ?? ''}
+        bottleneck={weeks[weekId]?.bottleneck ?? ''}
+        nextFirstStep={weeks[weekId]?.nextFirstStep ?? ''}
+        onChange={(patch) => updateWeek(weekId, patch)}
       />
+    </div>
+  )
+}
+
+function latestBreadcrumb(entries: Record<string, DailyEntry>, todayKey: string): string | null {
+  const match = Object.values(entries)
+    .filter((entry) => entry.isThesisDay && entry.nextStepBreadcrumb.trim() && entry.date <= todayKey)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))[0]
+  return match ? match.nextStepBreadcrumb.trim() : null
+}
+
+function HourStat({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-stone-50 px-1 py-2">
+      <p className="text-[11px] text-stone-500">{label}</p>
+      <p className={cn('text-sm font-semibold', tone)}>
+        <bdi dir="ltr">{formatHours(value)}</bdi>
+      </p>
     </div>
   )
 }
@@ -145,7 +244,6 @@ function DayCard({
 }) {
   const total = entry ? dailyTotal(entry) : null
   const light = entry ? dailyLight(entry) : 'neutral'
-  const meta = entry ? workMeta(entry.workType) : null
   const goal = entry?.dailyGoal || (entry ? 'בלי יעד רשום' : isFuture ? 'עדיין לא הגיע' : 'טרם מולא · הקש לדיווח')
 
   return (
@@ -162,46 +260,34 @@ function DayCard({
         <span className="text-lg leading-none font-semibold text-ink">{day.getDate()}</span>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex flex-wrap items-center gap-1">
           {entry && !entry.isThesisDay ? (
             <span className="rounded-full border border-stone-200 bg-stone-100 px-2 py-0.5 text-[11px] font-medium text-stone-600">
               ללא תזה
             </span>
           ) : null}
-          {entry?.isThesisDay && meta ? (
-            <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-medium', pillClass(meta.id))}>
-              {meta.short}
-            </span>
-          ) : null}
           {isToday ? <span className="text-[11px] font-medium text-teal-700">היום</span> : null}
         </span>
+        {entry?.isThesisDay ? (
+          <span className="mt-1 block">
+            <MixPills mix={entry.workMix} />
+            <StackedMix mix={entry.workMix} className="mt-1.5" />
+          </span>
+        ) : null}
         <span className="mt-1 block truncate text-sm text-stone-600">{goal}</span>
       </span>
       <span className="flex shrink-0 flex-col items-center">
         {entry?.isThesisDay && total !== null ? (
-          <span
-            className={cn(
-              'flex size-11 items-center justify-center rounded-full text-sm font-bold',
-              LIGHT_TONE[light].solid,
-            )}
-          >
+          <span className={cn('flex size-11 items-center justify-center rounded-full text-sm font-bold', LIGHT_TONE[light].solid)}>
             <span dir="ltr">{total}</span>
           </span>
         ) : (
-          <span className="flex size-11 items-center justify-center rounded-full bg-stone-100 text-sm text-stone-400">
-            –
-          </span>
+          <span className="flex size-11 items-center justify-center rounded-full bg-stone-100 text-sm text-stone-400">–</span>
         )}
         <span className="sr-only">{entry ? LIGHT_TEXT[light] : 'אין דיווח'}</span>
       </span>
     </button>
   )
-}
-
-function pillClass(type: NonNullable<ReturnType<typeof workMeta>>['id']): string {
-  if (type === 'creative') return 'border-teal-200 bg-teal-50 text-teal-800'
-  if (type === 'research') return 'border-sky-200 bg-sky-50 text-sky-900'
-  return 'border-stone-200 bg-stone-100 text-stone-700'
 }
 
 function WeeklyReflection({

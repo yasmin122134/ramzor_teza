@@ -1,15 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { loadState, saveState } from '../lib/storage.ts'
-import type { DailyEntry, PersistedState, WeeklyReflection } from '../types.ts'
+import { DEFAULT_TARGET_HOURS } from '../lib/mix.ts'
+import { emptyWeek, loadState, saveState } from '../lib/storage.ts'
+import type { DailyEntry, PersistedState, WeekRecord } from '../types.ts'
 
 interface ThesisStoreValue {
   entries: Record<string, DailyEntry>
-  reflections: Record<string, WeeklyReflection>
+  weeks: Record<string, WeekRecord>
   sampleCount: number
   saveEntry: (entry: DailyEntry) => void
   deleteEntry: (date: string) => void
-  updateReflection: (weekId: string, patch: Partial<Omit<WeeklyReflection, 'weekId'>>) => void
+  updateWeek: (weekId: string, patch: Partial<Omit<WeekRecord, 'weekId'>>) => void
   replaceAll: (next: PersistedState) => void
   clearSamples: () => void
 }
@@ -38,24 +39,24 @@ export function ThesisProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const updateReflection = useCallback((weekId: string, patch: Partial<Omit<WeeklyReflection, 'weekId'>>) => {
+  const updateWeek = useCallback((weekId: string, patch: Partial<Omit<WeekRecord, 'weekId'>>) => {
     setState((prev) => {
-      const current = prev.reflections[weekId] ?? {
-        weekId,
-        topAchievement: '',
-        bottleneck: '',
-        nextFirstStep: '',
-      }
+      const current = prev.weeks[weekId] ?? emptyWeek(weekId)
       const next = { ...current, ...patch, weekId }
-      const reflections = { ...prev.reflections }
-      if (!next.topAchievement && !next.bottleneck && !next.nextFirstStep) delete reflections[weekId]
-      else reflections[weekId] = next
-      return { ...prev, reflections }
+      const weeks = { ...prev.weeks }
+      const pristine =
+        next.targetWeeklyHours === DEFAULT_TARGET_HOURS &&
+        !next.topAchievement &&
+        !next.bottleneck &&
+        !next.nextFirstStep
+      if (pristine) delete weeks[weekId]
+      else weeks[weekId] = next
+      return { ...prev, weeks }
     })
   }, [])
 
   const replaceAll = useCallback((next: PersistedState) => {
-    setState({ version: 1, entries: next.entries, reflections: next.reflections })
+    setState({ version: 2, entries: next.entries, weeks: next.weeks })
   }, [])
 
   const clearSamples = useCallback(() => {
@@ -76,15 +77,15 @@ export function ThesisProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThesisStoreValue>(
     () => ({
       entries: state.entries,
-      reflections: state.reflections,
+      weeks: state.weeks,
       sampleCount,
       saveEntry,
       deleteEntry,
-      updateReflection,
+      updateWeek,
       replaceAll,
       clearSamples,
     }),
-    [state.entries, state.reflections, sampleCount, saveEntry, deleteEntry, updateReflection, replaceAll, clearSamples],
+    [state.entries, state.weeks, sampleCount, saveEntry, deleteEntry, updateWeek, replaceAll, clearSamples],
   )
 
   return <ThesisContext.Provider value={value}>{children}</ThesisContext.Provider>

@@ -1,55 +1,75 @@
-export type WorkType = 'creative' | 'research' | 'maintenance'
+export type WorkType = 'builder' | 'drafting' | 'research' | 'maintenance'
+
+export type WorkMix = Record<WorkType, number>
 
 export type Light = 'green' | 'yellow' | 'red' | 'neutral'
 
 export interface DailyEntry {
   date: string
   isThesisDay: boolean
-  workType: WorkType | null
+  workMix: WorkMix
   dailyGoal: string
   outputScore: number | null
-  focusScore: number | null
+  effectiveHours: number
+  qualityIdleHours: number
+  badIdleHours: number
   balanceScore: number | null
   balanceTags: string[]
   notes: string
+  nextStepBreadcrumb: string
   isSample?: boolean
 }
 
-export interface WeeklyReflection {
+export interface WeekRecord {
   weekId: string
+  targetWeeklyHours: number
   topAchievement: string
   bottleneck: string
   nextFirstStep: string
 }
 
 export interface PersistedState {
-  version: 1
+  version: 2
   entries: Record<string, DailyEntry>
-  reflections: Record<string, WeeklyReflection>
+  weeks: Record<string, WeekRecord>
 }
 
+export type FlagId = 'padding' | 'passive' | 'burnout' | 'bottleneck' | 'writing'
+
 export interface RedFlag {
-  id: 'maintenance' | 'burnout' | 'bottleneck'
+  id: FlagId
   message: string
 }
 
 export interface WeeklySummary {
   light: Light
   average: number | null
+  rawAverage: number | null
+  penalized: boolean
   thesisDaysCount: number
-  creativeDaysCount: number
   averageBalance: number | null
+  averageOutput: number | null
   stuckOutputCount: number
+  scheduledHours: number
+  effectiveHours: number
+  qualityIdleHours: number
+  badIdleHours: number
+  targetWeeklyHours: number
+  schedulingCompletionPct: number | null
+  workMix: WorkMix
   flags: RedFlag[]
 }
 
 export interface DraftEntry {
   isThesisDay: boolean
-  workType: WorkType | null
+  workMix: WorkMix
   dailyGoal: string
   outputScore: number | null
-  focusScore: number | null
+  effectiveHours: number
+  qualityIdleHours: number
+  badIdleHours: number
   balanceScore: number | null
   balanceTags: string[]
   notes: string
+  nextStepBreadcrumb: string
 }

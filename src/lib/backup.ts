@@ -1,5 +1,6 @@
+import { DEFAULT_TARGET_HOURS, WORK_ORDER } from './mix.ts'
 import { sanitizeState } from './storage.ts'
-import type { DailyEntry, PersistedState, WeeklyReflection } from '../types.ts'
+import type { DailyEntry, PersistedState, WeekRecord } from '../types.ts'
 
 const HEADERS = [
   'type',
@@ -7,17 +8,28 @@ const HEADERS = [
   'weekId',
   'isThesisDay',
   'workType',
+  'builder',
+  'drafting',
+  'research',
+  'maintenance',
   'dailyGoal',
   'outputScore',
   'focusScore',
+  'effectiveHours',
+  'qualityIdleHours',
+  'badIdleHours',
   'balanceScore',
   'balanceTags',
   'notes',
+  'nextStepBreadcrumb',
   'topAchievement',
   'bottleneck',
   'nextFirstStep',
+  'targetWeeklyHours',
   'isSample',
 ] as const
+
+type Header = (typeof HEADERS)[number]
 
 export type BackupResult = { ok: true; state: PersistedState } | { ok: false; error: string }
 
@@ -31,59 +43,62 @@ function cell(value: string | number | boolean | null | undefined): string {
   return escapeCell(String(value))
 }
 
-function hasReflectionText(reflection: WeeklyReflection): boolean {
-  return Boolean(reflection.topAchievement || reflection.bottleneck || reflection.nextFirstStep)
+function row(values: Partial<Record<Header, string | number | boolean | null>>): string {
+  return HEADERS.map((key) => cell(values[key])).join(',')
 }
 
-function entryRow(entry: DailyEntry): string {
-  return [
-    cell('entry'),
-    cell(entry.date),
-    cell(''),
-    cell(entry.isThesisDay ? 'true' : 'false'),
-    cell(entry.workType ?? ''),
-    cell(entry.dailyGoal),
-    cell(entry.outputScore ?? ''),
-    cell(entry.focusScore ?? ''),
-    cell(entry.balanceScore ?? ''),
-    cell(entry.balanceTags.join('|')),
-    cell(entry.notes),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(entry.isSample ? 'true' : 'false'),
-  ].join(',')
+function dominantType(entry: DailyEntry): string {
+  return WORK_ORDER.reduce((best, type) => (entry.workMix[type] > entry.workMix[best] ? type : best))
 }
 
-function reflectionRow(reflection: WeeklyReflection): string {
-  return [
-    cell('reflection'),
-    cell(''),
-    cell(reflection.weekId),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(''),
-    cell(reflection.topAchievement),
-    cell(reflection.bottleneck),
-    cell(reflection.nextFirstStep),
-    cell(''),
-  ].join(',')
+function hasWeekContent(week: WeekRecord): boolean {
+  return (
+    week.targetWeeklyHours !== DEFAULT_TARGET_HOURS ||
+    Boolean(week.topAchievement || week.bottleneck || week.nextFirstStep)
+  )
 }
 
 export function toCsv(state: PersistedState): string {
   const lines = [HEADERS.join(',')]
   for (const date of Object.keys(state.entries).sort()) {
     const entry = state.entries[date]
-    if (entry) lines.push(entryRow(entry))
+    if (!entry) continue
+    lines.push(
+      row({
+        type: 'entry',
+        date: entry.date,
+        isThesisDay: entry.isThesisDay ? 'true' : 'false',
+        workType: dominantType(entry),
+        builder: entry.workMix.builder,
+        drafting: entry.workMix.drafting,
+        research: entry.workMix.research,
+        maintenance: entry.workMix.maintenance,
+        dailyGoal: entry.dailyGoal,
+        outputScore: entry.outputScore,
+        effectiveHours: entry.effectiveHours,
+        qualityIdleHours: entry.qualityIdleHours,
+        badIdleHours: entry.badIdleHours,
+        balanceScore: entry.balanceScore,
+        balanceTags: entry.balanceTags.join('|'),
+        notes: entry.notes,
+        nextStepBreadcrumb: entry.nextStepBreadcrumb,
+        isSample: entry.isSample ? 'true' : 'false',
+      }),
+    )
   }
-  for (const weekId of Object.keys(state.reflections).sort()) {
-    const reflection = state.reflections[weekId]
-    if (reflection && hasReflectionText(reflection)) lines.push(reflectionRow(reflection))
+  for (const weekId of Object.keys(state.weeks).sort()) {
+    const week = state.weeks[weekId]
+    if (!week || !hasWeekContent(week)) continue
+    lines.push(
+      row({
+        type: 'week',
+        weekId: week.weekId,
+        topAchievement: week.topAchievement,
+        bottleneck: week.bottleneck,
+        nextFirstStep: week.nextFirstStep,
+        targetWeeklyHours: week.targetWeeklyHours,
+      }),
+    )
   }
   return `\uFEFF${lines.join('\n')}\n`
 }
@@ -91,10 +106,10 @@ export function toCsv(state: PersistedState): string {
 export function toJson(state: PersistedState): string {
   return JSON.stringify(
     {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       entries: state.entries,
-      reflections: state.reflections,
+      weeks: state.weeks,
     },
     null,
     2,
@@ -122,7 +137,7 @@ export function downloadText(filename: string, contents: string, mime: string): 
 
 function parseCsv(text: string): string[][] {
   const rows: string[][] = []
-  let row: string[] = []
+  let rowCells: string[] = []
   let field = ''
   let inQuotes = false
 
@@ -143,21 +158,21 @@ function parseCsv(text: string): string[][] {
     }
     if (char === '"') inQuotes = true
     else if (char === ',') {
-      row.push(field)
+      rowCells.push(field)
       field = ''
     } else if (char === '\n') {
-      row.push(field)
+      rowCells.push(field)
       field = ''
-      rows.push(row)
-      row = []
+      rows.push(rowCells)
+      rowCells = []
     } else if (char !== '\r') {
       field += char ?? ''
     }
   }
 
-  if (field.length > 0 || row.length > 0) {
-    row.push(field)
-    rows.push(row)
+  if (field.length > 0 || rowCells.length > 0) {
+    rowCells.push(field)
+    rows.push(rowCells)
   }
   return rows.filter((cells) => cells.some((value) => value.trim() !== ''))
 }
@@ -165,7 +180,12 @@ function parseCsv(text: string): string[][] {
 function parseNumber(value: string): number | null {
   if (value.trim() === '') return null
   const parsed = Number(value)
-  return Number.isInteger(parsed) ? parsed : null
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseScore(value: string): number | null {
+  const parsed = parseNumber(value)
+  return parsed !== null && Number.isInteger(parsed) ? parsed : null
 }
 
 function parseCsvBackup(text: string): BackupResult {
@@ -184,29 +204,47 @@ function parseCsvBackup(text: string): BackupResult {
   }
 
   const entries = []
-  const reflections: Record<string, WeeklyReflection> = {}
+  const weeks: Record<string, WeekRecord> = {}
   for (const cells of rows.slice(1)) {
     const type = pick(cells, 'type').trim()
     if (type === 'entry') {
+      const builder = parseNumber(pick(cells, 'builder'))
+      const drafting = parseNumber(pick(cells, 'drafting'))
+      const research = parseNumber(pick(cells, 'research'))
+      const maintenance = parseNumber(pick(cells, 'maintenance'))
+      const hasMix = [builder, drafting, research, maintenance].some((value) => value !== null)
       entries.push({
         date: pick(cells, 'date').trim(),
         isThesisDay: pick(cells, 'isThesisDay').trim() === 'true',
         workType: pick(cells, 'workType').trim() || null,
+        workMix: hasMix
+          ? {
+              builder: builder ?? 0,
+              drafting: drafting ?? 0,
+              research: research ?? 0,
+              maintenance: maintenance ?? 0,
+            }
+          : undefined,
         dailyGoal: pick(cells, 'dailyGoal'),
-        outputScore: parseNumber(pick(cells, 'outputScore')),
-        focusScore: parseNumber(pick(cells, 'focusScore')),
-        balanceScore: parseNumber(pick(cells, 'balanceScore')),
+        outputScore: parseScore(pick(cells, 'outputScore')),
+        focusScore: parseScore(pick(cells, 'focusScore')),
+        effectiveHours: parseNumber(pick(cells, 'effectiveHours')),
+        qualityIdleHours: parseNumber(pick(cells, 'qualityIdleHours')),
+        badIdleHours: parseNumber(pick(cells, 'badIdleHours')),
+        balanceScore: parseScore(pick(cells, 'balanceScore')),
         balanceTags: pick(cells, 'balanceTags')
           .split('|')
           .map((tag) => tag.trim())
           .filter(Boolean),
         notes: pick(cells, 'notes'),
+        nextStepBreadcrumb: pick(cells, 'nextStepBreadcrumb'),
         isSample: pick(cells, 'isSample').trim() === 'true',
       })
-    } else if (type === 'reflection') {
+    } else if (type === 'week' || type === 'reflection') {
       const weekId = pick(cells, 'weekId').trim()
-      reflections[weekId] = {
+      weeks[weekId] = {
         weekId,
+        targetWeeklyHours: parseNumber(pick(cells, 'targetWeeklyHours')) ?? DEFAULT_TARGET_HOURS,
         topAchievement: pick(cells, 'topAchievement'),
         bottleneck: pick(cells, 'bottleneck'),
         nextFirstStep: pick(cells, 'nextFirstStep'),
@@ -214,7 +252,7 @@ function parseCsvBackup(text: string): BackupResult {
     }
   }
 
-  const state = sanitizeState({ version: 1, entries, reflections })
+  const state = sanitizeState({ version: 2, entries, weeks })
   if (!state) return { ok: false, error: 'לא הצלחנו לקרוא את נתוני ה־CSV.' }
   return { ok: true, state }
 }

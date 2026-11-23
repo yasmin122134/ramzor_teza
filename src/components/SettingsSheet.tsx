@@ -6,7 +6,7 @@ import type { PersistedState } from '../types.ts'
 import { Sheet } from './Sheet.tsx'
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
-  const { entries, reflections, sampleCount, replaceAll, clearSamples } = useThesis()
+  const { entries, weeks, sampleCount, replaceAll, clearSamples } = useThesis()
   const jsonRef = useRef<HTMLInputElement>(null)
   const csvRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -15,7 +15,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false)
 
   function exportJson() {
-    const state = { version: 1 as const, entries, reflections }
+    const state = { version: 2 as const, entries, weeks }
     downloadText(backupFilename('json'), toJson(state), 'application/json;charset=utf-8')
     setError(null)
     setPending(null)
@@ -23,7 +23,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   }
 
   function exportCsv() {
-    const state = { version: 1 as const, entries, reflections }
+    const state = { version: 2 as const, entries, weeks }
     downloadText(backupFilename('csv'), toCsv(state), 'text/csv;charset=utf-8')
     setError(null)
     setPending(null)

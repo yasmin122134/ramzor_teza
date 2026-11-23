@@ -1,9 +1,13 @@
-import type { DailyEntry, Light, RedFlag, WeeklySummary, WorkType } from '../types.ts'
+import { addDays, startOfWeek, toDateKey, weekDates } from './dates.ts'
+import { DEFAULT_TARGET_HOURS, weightedMix, zeroMix } from './mix.ts'
+import type { DailyEntry, Light, RedFlag, WeeklySummary, WorkMix } from '../types.ts'
 
 export const FLAG_MESSAGES = {
-  maintenance: '⚠️ מלכודת קריאה/תחזוקה (0 ימי יצירה)',
+  padding: '⚠️ ניפוח שעות (המון שעות בלו״ז עם מעט תפוקה)',
+  passive: '⚠️ מלכודת קריאה/תחזוקה (פחות מ-30% יצירה וכתיבה)',
   burnout: '⚠️ סכנת שחיקה (0 התאוששות)',
   bottleneck: '⚠️ תקיעות טכנית (כדאי להתייעץ עם המנחה)',
+  writing: '⚠️ הימנעות מכתיבה (3 שבועות ללא ניסוח טקסט חדש)',
 } as const
 
 export function round1FromSum(sum: number, count: number): number {
@@ -11,26 +15,29 @@ export function round1FromSum(sum: number, count: number): number {
   return Math.round((sum * 10) / count) / 10
 }
 
-export function isCompleteThesisDay(entry: DailyEntry): entry is DailyEntry & {
-  workType: WorkType
-  outputScore: number
-  focusScore: number
-  balanceScore: number
-} {
-  return (
-    entry.isThesisDay &&
-    entry.workType !== null &&
-    entry.outputScore !== null &&
-    entry.focusScore !== null &&
-    entry.balanceScore !== null
-  )
+export function timeQualityScore(effectiveHours: number, badIdleHours: number): number {
+  if (effectiveHours <= 0) return 0
+  const cleanRatio = effectiveHours / Math.max(0.5, effectiveHours + badIdleHours)
+  if (effectiveHours >= 3.5 && cleanRatio >= 0.85) return 4
+  if (effectiveHours >= 2.5 && cleanRatio >= 0.7) return 3
+  if (effectiveHours >= 1.5) return 2
+  return 1
 }
 
-export function dailyTotal(
-  entry: Pick<DailyEntry, 'outputScore' | 'focusScore' | 'balanceScore'>,
-): number | null {
-  if (entry.outputScore === null || entry.focusScore === null || entry.balanceScore === null) return null
-  return entry.outputScore + entry.focusScore + entry.balanceScore
+export function scheduledHours(entry: Pick<DailyEntry, 'effectiveHours' | 'qualityIdleHours' | 'badIdleHours'>): number {
+  return entry.effectiveHours + entry.qualityIdleHours + entry.badIdleHours
+}
+
+export function isCompleteThesisDay(entry: DailyEntry): entry is DailyEntry & {
+  outputScore: number
+  balanceScore: number
+} {
+  return entry.isThesisDay && entry.outputScore !== null && entry.balanceScore !== null
+}
+
+export function dailyTotal(entry: DailyEntry): number | null {
+  if (entry.outputScore === null || entry.balanceScore === null) return null
+  return entry.outputScore + timeQualityScore(entry.effectiveHours, entry.badIdleHours) + entry.balanceScore
 }
 
 export function lightFromTotal(total: number): Light {
@@ -46,33 +53,57 @@ export function dailyLight(entry: DailyEntry): Light {
   return lightFromTotal(total)
 }
 
-export function summarizeWeek(entries: DailyEntry[]): WeeklySummary {
-  const thesis = entries.filter(isCompleteThesisDay)
-  if (thesis.length === 0) {
-    return {
-      light: 'neutral',
-      average: null,
-      thesisDaysCount: 0,
-      creativeDaysCount: 0,
-      averageBalance: null,
-      stuckOutputCount: 0,
-      flags: [],
-    }
+function emptySummary(targetWeeklyHours: number): WeeklySummary {
+  return {
+    light: 'neutral',
+    average: null,
+    rawAverage: null,
+    penalized: false,
+    thesisDaysCount: 0,
+    averageBalance: null,
+    averageOutput: null,
+    stuckOutputCount: 0,
+    scheduledHours: 0,
+    effectiveHours: 0,
+    qualityIdleHours: 0,
+    badIdleHours: 0,
+    targetWeeklyHours,
+    schedulingCompletionPct: null,
+    workMix: zeroMix(),
+    flags: [],
   }
+}
 
-  const totalSum = thesis.reduce(
-    (sum, entry) => sum + entry.outputScore + entry.focusScore + entry.balanceScore,
-    0,
-  )
+export function summarizeWeek(
+  entries: DailyEntry[],
+  options?: { targetWeeklyHours?: number; writingAvoidance?: boolean },
+): WeeklySummary {
+  const targetWeeklyHours = options?.targetWeeklyHours ?? DEFAULT_TARGET_HOURS
+  const thesis = entries.filter(isCompleteThesisDay)
+  if (thesis.length === 0) return emptySummary(targetWeeklyHours)
+
+  const totalSum = thesis.reduce((sum, entry) => sum + (dailyTotal(entry) ?? 0), 0)
+  const rawAverage = round1FromSum(totalSum, thesis.length)
   const balanceSum = thesis.reduce((sum, entry) => sum + entry.balanceScore, 0)
-  const average = round1FromSum(totalSum, thesis.length)
+  const outputSum = thesis.reduce((sum, entry) => sum + entry.outputScore, 0)
   const averageBalance = round1FromSum(balanceSum, thesis.length)
-  const creativeDaysCount = thesis.filter((entry) => entry.workType === 'creative').length
+  const averageOutputRaw = outputSum / thesis.length
+  const scheduled = thesis.reduce((sum, entry) => sum + scheduledHours(entry), 0)
+  const effective = thesis.reduce((sum, entry) => sum + entry.effectiveHours, 0)
+  const quality = thesis.reduce((sum, entry) => sum + entry.qualityIdleHours, 0)
+  const bad = thesis.reduce((sum, entry) => sum + entry.badIdleHours, 0)
+  const schedulingCompletionPct = targetWeeklyHours > 0 ? (scheduled / targetWeeklyHours) * 100 : 0
+  const penalized = thesis.length >= 2 && schedulingCompletionPct < 75
+  const average = Math.max(0, Math.round((rawAverage - (penalized ? 0.5 : 0)) * 10) / 10)
+  const mix = weightedMix(thesis.map((entry) => ({ mix: entry.workMix, weight: entry.effectiveHours })))
   const stuckOutputCount = thesis.filter((entry) => entry.outputScore === 0).length
   const flags: RedFlag[] = []
 
-  if (thesis.length >= 3 && creativeDaysCount === 0) {
-    flags.push({ id: 'maintenance', message: FLAG_MESSAGES.maintenance })
+  if (schedulingCompletionPct >= 100 && averageOutputRaw < 2) {
+    flags.push({ id: 'padding', message: FLAG_MESSAGES.padding })
+  }
+  if (thesis.length >= 3 && mix.raw.builder + mix.raw.drafting < 30) {
+    flags.push({ id: 'passive', message: FLAG_MESSAGES.passive })
   }
   if (thesis.length >= 2 && thesis.every((entry) => entry.balanceScore === 0)) {
     flags.push({ id: 'burnout', message: FLAG_MESSAGES.burnout })
@@ -80,85 +111,107 @@ export function summarizeWeek(entries: DailyEntry[]): WeeklySummary {
   if (stuckOutputCount >= 2) {
     flags.push({ id: 'bottleneck', message: FLAG_MESSAGES.bottleneck })
   }
+  if (options?.writingAvoidance) {
+    flags.push({ id: 'writing', message: FLAG_MESSAGES.writing })
+  }
 
   let light: Light
   if (average < 5 || flags.length > 0) light = 'red'
-  else if (average >= 7.5) light = 'green'
+  else if (average >= 7.5 && schedulingCompletionPct >= 80 && flags.length === 0) light = 'green'
   else light = 'yellow'
 
   return {
     light,
     average,
+    rawAverage,
+    penalized,
     thesisDaysCount: thesis.length,
-    creativeDaysCount,
     averageBalance,
+    averageOutput: round1FromSum(outputSum, thesis.length),
     stuckOutputCount,
+    scheduledHours: scheduled,
+    effectiveHours: effective,
+    qualityIdleHours: quality,
+    badIdleHours: bad,
+    targetWeeklyHours,
+    schedulingCompletionPct,
+    workMix: mix.display,
     flags,
   }
 }
 
-export interface WorkSlice {
-  type: WorkType
-  count: number
-  percent: number
-}
-
-const WORK_ORDER: WorkType[] = ['creative', 'research', 'maintenance']
-
-export function workTypeBreakdown(entries: DailyEntry[]): WorkSlice[] {
-  const thesis = entries.filter(isCompleteThesisDay)
-  const counts: Record<WorkType, number> = { creative: 0, research: 0, maintenance: 0 }
-  for (const entry of thesis) counts[entry.workType] += 1
-  const total = thesis.length
-  if (total === 0) {
-    return WORK_ORDER.map((type) => ({ type, count: 0, percent: 0 }))
-  }
-
-  const raw = WORK_ORDER.map((type) => {
-    const exact = (counts[type] / total) * 100
-    const floor = Math.floor(exact)
-    return { type, count: counts[type], floor, frac: exact - floor }
+export function summarizeStoredWeek(all: DailyEntry[], weekStart: Date, targetWeeklyHours = DEFAULT_TARGET_HOURS): WeeklySummary {
+  const byDate = new Map(all.map((entry) => [entry.date, entry]))
+  const weekEntries = weekDates(startOfWeek(weekStart)).flatMap((day) => {
+    const entry = byDate.get(toDateKey(day))
+    return entry ? [entry] : []
   })
-  let remaining = 100 - raw.reduce((sum, item) => sum + item.floor, 0)
-  const ranked = [...raw].sort(
-    (a, b) => b.frac - a.frac || WORK_ORDER.indexOf(a.type) - WORK_ORDER.indexOf(b.type),
-  )
-  const bonus = new Set<WorkType>()
-  for (const item of ranked) {
-    if (remaining <= 0) break
-    bonus.add(item.type)
-    remaining -= 1
-  }
-  return raw.map((item) => ({
-    type: item.type,
-    count: item.count,
-    percent: item.floor + (bonus.has(item.type) ? 1 : 0),
-  }))
+  return summarizeWeek(weekEntries, {
+    targetWeeklyHours,
+    writingAvoidance: hasWritingAvoidance(all, weekStart),
+  })
 }
 
-export interface WorkoutCorrelation {
-  workoutAvg: number | null
+export function hasWritingAvoidance(all: DailyEntry[], weekStart: Date): boolean {
+  const byDate = new Map(all.map((entry) => [entry.date, entry]))
+  const anchor = startOfWeek(weekStart)
+  const current = weekDates(anchor)
+    .map((day) => byDate.get(toDateKey(day)))
+    .filter((entry): entry is DailyEntry => Boolean(entry))
+  if (current.filter(isCompleteThesisDay).length === 0) return false
+
+  const drafting: number[] = []
+  for (let index = 0; index < 30 && drafting.length < 3; index += 1) {
+    const start = addDays(anchor, -7 * index)
+    const week = weekDates(start)
+      .map((day) => byDate.get(toDateKey(day)))
+      .filter((entry): entry is DailyEntry => Boolean(entry))
+    const thesis = week.filter(isCompleteThesisDay)
+    if (thesis.length === 0) continue
+    const mix = weightedMix(thesis.map((entry) => ({ mix: entry.workMix, weight: entry.effectiveHours })))
+    drafting.push(mix.display.drafting)
+  }
+  return drafting.length >= 3 && drafting.every((value) => value === 0)
+}
+
+export function hoursFromLegacyFocus(focusScore: number): {
+  effectiveHours: number
+  qualityIdleHours: number
+  badIdleHours: number
+} {
+  if (focusScore >= 4) return { effectiveHours: 4, qualityIdleHours: 0.5, badIdleHours: 0 }
+  if (focusScore === 3) return { effectiveHours: 3, qualityIdleHours: 0.5, badIdleHours: 0.5 }
+  if (focusScore === 2) return { effectiveHours: 2, qualityIdleHours: 0.5, badIdleHours: 0.5 }
+  if (focusScore === 1) return { effectiveHours: 1, qualityIdleHours: 0, badIdleHours: 1 }
+  return { effectiveHours: 0, qualityIdleHours: 0, badIdleHours: 0 }
+}
+
+export interface WorkoutHypothesis {
+  workoutOutput: number | null
+  workoutQuality: number | null
   workoutCount: number
-  restAvg: number | null
+  restOutput: number | null
+  restQuality: number | null
   restCount: number
 }
 
-export function workoutCorrelation(entries: DailyEntry[]): WorkoutCorrelation {
+export function workoutHypothesis(entries: DailyEntry[]): WorkoutHypothesis {
   const thesis = entries.filter(isCompleteThesisDay)
   const workout = thesis.filter((entry) => entry.balanceScore === 2)
   const rest = thesis.filter((entry) => entry.balanceScore !== 2)
-  const averageOutput = (list: typeof thesis) =>
-    list.length === 0
-      ? null
-      : round1FromSum(
-          list.reduce((sum, entry) => sum + entry.outputScore, 0),
-          list.length,
-        )
-
+  const average = (list: typeof thesis, pick: (entry: (typeof thesis)[number]) => number) =>
+    list.length === 0 ? null : round1FromSum(list.reduce((sum, entry) => sum + pick(entry), 0), list.length)
   return {
-    workoutAvg: averageOutput(workout),
+    workoutOutput: average(workout, (entry) => entry.outputScore),
+    workoutQuality: average(workout, (entry) => timeQualityScore(entry.effectiveHours, entry.badIdleHours)),
     workoutCount: workout.length,
-    restAvg: averageOutput(rest),
+    restOutput: average(rest, (entry) => entry.outputScore),
+    restQuality: average(rest, (entry) => timeQualityScore(entry.effectiveHours, entry.badIdleHours)),
     restCount: rest.length,
   }
+}
+
+export function overallMix(entries: DailyEntry[]): WorkMix {
+  const thesis = entries.filter(isCompleteThesisDay)
+  return weightedMix(thesis.map((entry) => ({ mix: entry.workMix, weight: entry.effectiveHours }))).display
 }

@@ -54,7 +54,7 @@ function Shell() {
             onOpenDay={setOpenDate}
           />
         ) : (
-          <InsightsView weekStart={weekStart} />
+          <InsightsView weekStart={weekStart} onOpenDay={setOpenDate} />
         )}
       </main>
       <BottomNav tab={tab} onChange={setTab} />
