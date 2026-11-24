@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { Download, Trash, Upload } from 'lucide-react'
+import { CircleHelp, Download, Trash, Upload } from 'lucide-react'
 import { backupFilename, downloadText, parseBackup, toCsv, toJson } from '../lib/backup.ts'
 import { useThesis } from '../store/ThesisStore.tsx'
 import type { PersistedState } from '../types.ts'
+import { ScoringGuide } from './ScoringGuide.tsx'
 import { Sheet } from './Sheet.tsx'
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
@@ -13,6 +14,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<PersistedState | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
 
   function exportJson() {
     const state = { version: 2 as const, entries, weeks }
@@ -54,8 +56,19 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Sheet title="הגדרות" subtitle="גיבוי, שחזור ונתוני דוגמה" onClose={onClose}>
+    <Sheet
+      title={guideOpen ? 'הנקודות והצבעים' : 'הגדרות'}
+      subtitle={guideOpen ? 'איך הציון היומי והשבועי נצבעים' : 'גיבוי, שחזור ונתוני דוגמה'}
+      onClose={onClose}
+    >
+      {guideOpen ? (
+        <ScoringGuide onBack={() => setGuideOpen(false)} />
+      ) : (
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <button type="button" onClick={() => setGuideOpen(true)} className={actionClass}>
+          <CircleHelp className="size-5 shrink-0" aria-hidden="true" />
+          איך מחושב הציון
+        </button>
         <CloudSection />
 
         <button type="button" onClick={exportJson} className={actionClass}>
@@ -163,6 +176,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
+      )}
     </Sheet>
   )
 }
