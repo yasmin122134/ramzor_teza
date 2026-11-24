@@ -50,6 +50,14 @@ function authMessage(message: string): string {
   return 'לא הצלחנו לשלוח את הקישור. כדאי לנסות שוב.'
 }
 
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await requireClient().auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+  if (error) throw new Error('לא הצלחנו לפתוח את כניסת Google. כדאי לנסות שוב.')
+}
+
 export async function sendMagicLink(email: string): Promise<void> {
   const { error } = await requireClient().auth.signInWithOtp({
     email: email.trim(),

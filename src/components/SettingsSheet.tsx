@@ -168,9 +168,10 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
 }
 
 function CloudSection() {
-  const { cloudMode, cloudEmail, cloudNotice, sendSignInLink, signOut } = useThesis()
+  const { cloudMode, cloudEmail, cloudNotice, sendSignInLink, signInWithGoogle, signOut } = useThesis()
   const [address, setAddress] = useState('')
   const [sending, setSending] = useState(false)
+  const [googlePending, setGooglePending] = useState(false)
   const [sentTo, setSentTo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
@@ -211,8 +212,24 @@ function CloudSection() {
       {cloudMode === 'signed-out' ? (
         <form onSubmit={(event) => void submit(event)} className="mt-2 space-y-2">
           <p className="text-sm leading-6 text-stone-600">
-            כניסה עם קישור למייל שומרת את היומן בחשבון, ומשם בשאר המכשירים. רשומות הדוגמה לא עולות.
+            כניסה שומרת את היומן בחשבון, ומשם בשאר המכשירים. רשומות הדוגמה לא עולות.
           </p>
+          <button
+            type="button"
+            disabled={googlePending}
+            onClick={() => {
+              setError(null)
+              setGooglePending(true)
+              void signInWithGoogle().catch((caught: unknown) => {
+                setGooglePending(false)
+                setError(caught instanceof Error ? caught.message : 'לא הצלחנו לפתוח את כניסת Google. כדאי לנסות שוב.')
+              })
+            }}
+            className="h-12 w-full rounded-xl border border-stone-300 bg-white text-sm font-medium text-stone-900 disabled:opacity-60"
+          >
+            {googlePending ? 'עוברים ל-Google…' : 'כניסה עם Google'}
+          </button>
+          <p className="text-center text-xs text-stone-400">או עם קישור למייל</p>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-stone-800">מייל</span>
             <input

@@ -9,6 +9,7 @@ import {
   removeRemoteWeek,
   replaceRemote,
   sendMagicLink,
+  signInWithGoogle,
   signOutCloud,
   subscribeUser,
   upsertRemoteEntry,
@@ -34,6 +35,7 @@ interface ThesisStoreValue {
   replaceAll: (next: PersistedState) => void
   clearSamples: () => void
   sendSignInLink: (email: string) => Promise<void>
+  signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -359,6 +361,10 @@ export function ThesisProvider({ children }: { children: ReactNode }) {
     await sendMagicLink(address)
   }, [])
 
+  const signInGoogle = useCallback(async () => {
+    await signInWithGoogle()
+  }, [])
+
   const signOut = useCallback(async () => {
     await signOutCloud()
   }, [])
@@ -382,6 +388,7 @@ export function ThesisProvider({ children }: { children: ReactNode }) {
       replaceAll,
       clearSamples,
       sendSignInLink,
+      signInWithGoogle: signInGoogle,
       signOut,
     }),
     [
@@ -397,6 +404,7 @@ export function ThesisProvider({ children }: { children: ReactNode }) {
       replaceAll,
       clearSamples,
       sendSignInLink,
+      signInGoogle,
       signOut,
     ],
   )
