@@ -16,6 +16,7 @@ import {
   formatHours,
   formatSleep,
 } from '../lib/labels.ts'
+import { canDecreaseBucket, canIncreaseBucket, nudgeHours, SCHEDULED_MAX, setScheduledTotal } from '../lib/hours.ts'
 import { defaultMix } from '../lib/mix.ts'
 import { cn } from '../lib/cn.ts'
 import { lightFromTotal, timeQualityScore } from '../lib/scoring.ts'
@@ -35,9 +36,13 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
   const missing = missingFields(draft)
   const total = scoreTotal(draft)
   const quality = timeQualityScore(draft.effectiveHours, draft.badIdleHours)
-  const scheduled = draft.effectiveHours + draft.qualityIdleHours + draft.badIdleHours
+  const hours = {
+    effectiveHours: draft.effectiveHours,
+    qualityIdleHours: draft.qualityIdleHours,
+    badIdleHours: draft.badIdleHours,
+  }
+  const scheduled = hours.effectiveHours + hours.qualityIdleHours + hours.badIdleHours
   const previewLight: Light = !draft.isThesisDay || total === null ? 'neutral' : lightFromTotal(total)
-  const canSave = !draft.isThesisDay || missing.length === 0
 
   function update(patch: Partial<DraftEntry>) {
     setDraft((current) => ({ ...current, ...patch }))
@@ -45,7 +50,6 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!canSave) return
     const saved: DailyEntry = {
       date,
       isThesisDay: draft.isThesisDay,
@@ -84,7 +88,11 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
             <span>
               <span className="block font-medium text-ink">{draft.isThesisDay ? 'יום תזה' : 'יום ללא תזה'}</span>
               <span className="block text-sm text-stone-500">
-                {draft.isThesisDay ? 'נספר בממוצע השבועי' : 'לא נספר בממוצע השבועי'}
+                {draft.isThesisDay
+                  ? total === null
+                    ? 'נכנס לממוצע רק אחרי סיכום היום'
+                    : 'נספר בממוצע השבועי'
+                  : 'לא נספר בממוצע השבועי'}
               </span>
             </span>
             <span
@@ -100,6 +108,11 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
 
           {draft.isThesisDay ? (
             <>
+              <section className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">בבוקר</h3>
+                  <p className="mt-1 text-sm leading-6 text-stone-500">יעד, שינה ומיקום. אפשר לשמור בלי לחכות לסוף היום.</p>
+                </div>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-stone-800">יעד יומי</span>
                 <input
@@ -111,6 +124,39 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
                   className="h-12 w-full rounded-xl border border-stone-200 bg-white px-3 text-base text-ink outline-none"
                 />
               </label>
+
+              <fieldset>
+                <legend className="text-sm font-medium text-stone-800">שעות שינה בלילה הקודם</legend>
+                <div className="mt-2 flex items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2">
+                  <p className="min-w-0 flex-1 text-sm text-stone-600">בקפיצות של חצי שעה, מ־0 עד 10</p>
+                  <div dir="ltr" className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="הקטנת שעות שינה"
+                      disabled={draft.sleepHours <= SLEEP_MIN}
+                      onClick={() => update({ sleepHours: Math.max(SLEEP_MIN, Math.round((draft.sleepHours - 0.5) * 2) / 2) })}
+                      className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                    <span className="w-12 text-center text-sm font-semibold text-ink">{formatSleep(draft.sleepHours)}</span>
+                    <button
+                      type="button"
+                      aria-label="הגדלת שעות שינה"
+                      disabled={draft.sleepHours >= SLEEP_MAX}
+                      onClick={() => update({ sleepHours: Math.min(SLEEP_MAX, Math.round((draft.sleepHours + 0.5) * 2) / 2) })}
+                      className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                {draft.sleepHours < 6 ? (
+                  <p className="mt-2 rounded-2xl bg-amber-50 px-3 py-3 text-sm leading-6 text-amber-950">
+                    לילה קצר — כדאי להתמקד במשימות תחזוקה/בדיקות ולהימנע מהחלטות ארכיטקטורה כבדות
+                  </p>
+                ) : null}
+              </fieldset>
 
               <fieldset>
                 <legend className="text-sm font-medium text-stone-800">סביבת עבודה</legend>
@@ -156,6 +202,13 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
                   })}
                 </div>
               </fieldset>
+              </section>
+
+              <section className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">בסוף היום</h3>
+                  <p className="mt-1 text-sm leading-6 text-stone-500">תמהיל, תוצר, שעות ואיזון. משלימים כשהיום נגמר.</p>
+                </div>
 
               <WorkMixEditor mix={draft.workMix} onChange={(workMix) => update({ workMix })} />
 
@@ -170,23 +223,26 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
               <fieldset>
                 <legend className="mb-2 text-sm font-medium text-stone-800">שעות בסוף היום</legend>
                 <div className="space-y-2">
+                  <HourStepper
+                    label="סך שעות בלו״ז"
+                    hint="שלוש השורות הבאות מסתכמות אליו, בקפיצות של חצי שעה."
+                    value={scheduled}
+                    max={SCHEDULED_MAX}
+                    onChange={(value) => update(setScheduledTotal(hours, value))}
+                  />
                   {TIME_BUCKETS.map((bucket) => (
                     <HourStepper
                       key={bucket.key}
                       label={bucket.label}
                       hint={bucket.hint}
                       value={draft[bucket.key]}
-                      onChange={(value) => update({ [bucket.key]: value })}
+                      decreaseDisabled={!canDecreaseBucket(hours, bucket.key)}
+                      increaseDisabled={!canIncreaseBucket(hours, bucket.key)}
+                      onChange={(value) => update(nudgeHours(hours, bucket.key, value - draft[bucket.key]))}
                     />
                   ))}
                 </div>
                 <div className="mt-3 rounded-2xl bg-stone-50 px-3 py-3 text-sm leading-6 text-stone-700">
-                  <p>
-                    סה״כ שובצו בלו״ז{' '}
-                    <bdi dir="ltr" className="font-semibold text-ink">
-                      {formatHours(scheduled)}
-                    </bdi>
-                  </p>
                   <p>
                     איכות זמן{' '}
                     <bdi dir="ltr" className="font-semibold text-ink">
@@ -194,39 +250,6 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
                     </bdi>
                   </p>
                 </div>
-              </fieldset>
-
-              <fieldset>
-                <legend className="text-sm font-medium text-stone-800">שעות שינה בלילה הקודם</legend>
-                <div className="mt-2 flex items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2">
-                  <p className="min-w-0 flex-1 text-sm text-stone-600">בקפיצות של חצי שעה, מ־4 עד 9.5+</p>
-                  <div dir="ltr" className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      aria-label="הקטנת שעות שינה"
-                      disabled={draft.sleepHours <= SLEEP_MIN}
-                      onClick={() => update({ sleepHours: Math.max(SLEEP_MIN, Math.round((draft.sleepHours - 0.5) * 2) / 2) })}
-                      className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
-                    >
-                      −
-                    </button>
-                    <span className="w-12 text-center text-sm font-semibold text-ink">{formatSleep(draft.sleepHours)}</span>
-                    <button
-                      type="button"
-                      aria-label="הגדלת שעות שינה"
-                      disabled={draft.sleepHours >= SLEEP_MAX}
-                      onClick={() => update({ sleepHours: Math.min(SLEEP_MAX, Math.round((draft.sleepHours + 0.5) * 2) / 2) })}
-                      className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-                {draft.sleepHours < 6 ? (
-                  <p className="mt-2 rounded-2xl bg-amber-50 px-3 py-3 text-sm leading-6 text-amber-950">
-                    לילה קצר — כדאי להתמקד במשימות תחזוקה/בדיקות ולהימנע מהחלטות ארכיטקטורה כבדות
-                  </p>
-                ) : null}
               </fieldset>
 
               <fieldset>
@@ -300,6 +323,7 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
                   className="h-12 w-full rounded-xl border border-stone-200 bg-white px-3 text-base text-ink outline-none"
                 />
               </label>
+              </section>
             </>
           ) : null}
 
@@ -361,7 +385,7 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
               <p className="text-xs font-medium">ציון יומי</p>
               {draft.isThesisDay ? (
                 total === null ? (
-                  <p className="mt-0.5 text-sm leading-5">חסר: {missing.join(' · ')}</p>
+                  <p className="mt-0.5 text-sm leading-5">אפשר לשמור עכשיו. בלי {missing.join(' ו')} אין עדיין ציון.</p>
                 ) : (
                   <p className="text-2xl leading-none font-semibold">
                     <span dir="ltr" className="inline-block">
@@ -377,8 +401,7 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
             {draft.isThesisDay && total !== null ? <TrafficBadge light={previewLight} /> : null}
             <button
               type="submit"
-              disabled={!canSave}
-              className="h-12 shrink-0 rounded-xl bg-teal-800 px-5 text-base font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="h-12 shrink-0 rounded-xl bg-teal-800 px-5 text-base font-semibold text-white"
             >
               שמירה
             </button>
@@ -394,12 +417,20 @@ function HourStepper({
   hint,
   value,
   onChange,
+  max = 16,
+  decreaseDisabled = false,
+  increaseDisabled = false,
 }: {
   label: string
   hint: string
   value: number
   onChange: (value: number) => void
+  max?: number
+  decreaseDisabled?: boolean
+  increaseDisabled?: boolean
 }) {
+  const atMin = decreaseDisabled || value <= 0
+  const atMax = increaseDisabled || value >= max
   return (
     <div className="flex items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2">
       <div className="min-w-0 flex-1">
@@ -410,17 +441,19 @@ function HourStepper({
         <button
           type="button"
           aria-label={`הקטנת ${label}`}
+          disabled={atMin}
           onClick={() => onChange(Math.max(0, Math.round((value - 0.5) * 2) / 2))}
-          className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800"
+          className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
         >
           −
         </button>
-        <span className="w-8 text-center text-sm font-semibold text-ink">{formatHours(value)}</span>
+        <span className="w-10 text-center text-sm font-semibold text-ink">{formatHours(value)}</span>
         <button
           type="button"
           aria-label={`הגדלת ${label}`}
-          onClick={() => onChange(Math.min(16, Math.round((value + 0.5) * 2) / 2))}
-          className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800"
+          disabled={atMax}
+          onClick={() => onChange(Math.min(max, Math.round((value + 0.5) * 2) / 2))}
+          className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
         >
           +
         </button>

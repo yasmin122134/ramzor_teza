@@ -1,4 +1,5 @@
 import { parseBackup, toCsv, toJson } from '../src/lib/backup.ts'
+import { hourSum, nudgeHours, setScheduledTotal } from '../src/lib/hours.ts'
 import { mixSum, nudgeMix, toggleType } from '../src/lib/mix.ts'
 import { buildSampleEntries } from '../src/lib/sample.ts'
 import {
@@ -453,9 +454,28 @@ const ignoredSleep = sleepInsights([
 ])
 assert(ignoredSleep.every((item) => item.count === 0), 'non-thesis days stay out of sleep stats')
 
+const morning = day({ date: '2026-11-25', outputScore: null, balanceScore: null, sleepHours: 4, effectiveHours: 8, dailyGoal: 'לטיוט' })
+const withMorning = summarizeWeek([day({ date: '2026-11-22' }), morning])
+assert(dailyTotal(morning) === null, 'a morning plan has no score')
+assert(withMorning.thesisDaysCount === 1 && withMorning.average === 10, 'a morning plan stays out of the average')
+assert(withMorning.scheduledHours === 4.5, 'a morning plan does not add scheduled hours')
+assert(!withMorning.flags.some((flag) => flag.id === 'sleep'), 'a morning plan does not count as a short night')
+
+const split = { effectiveHours: 1.5, qualityIdleHours: 0.5, badIdleHours: 2 }
+const raised = setScheduledTotal(split, 4.5)
+assert(hourSum(raised) === 4.5 && raised.effectiveHours === 2 && raised.badIdleHours === 2, 'extra scheduled time lands on effective hours')
+const lowered = setScheduledTotal(split, 3)
+assert(hourSum(lowered) === 3 && lowered.badIdleHours === 1 && lowered.effectiveHours === 1.5, 'a smaller total is taken from bad idle first')
+const shifted = nudgeHours(split, 'effectiveHours', 0.5)
+assert(hourSum(shifted) === 4 && shifted.effectiveHours === 2 && shifted.badIdleHours === 1.5, 'raising one row takes from the largest other row')
+const returned = nudgeHours(shifted, 'badIdleHours', -0.5)
+assert(hourSum(returned) === 4 && returned.effectiveHours === 2.5 && returned.badIdleHours === 1, 'lowering a row gives the time back to effective hours')
+assert(hourSum(nudgeHours({ effectiveHours: 0, qualityIdleHours: 0, badIdleHours: 0 }, 'effectiveHours', 0.5)) === 0, 'a row cannot grow before the total does')
+
 assert(sanitizeSleep(undefined) === 7, 'missing sleep defaults to 7')
 assert(sanitizeSleep('5.5') === 5.5, 'sleep text is kept')
-assert(sanitizeSleep(3) === 4 && sanitizeSleep(12) === 9.5 && sanitizeSleep(7.2) === 7, 'sleep snaps into range')
+assert(sanitizeSleep(0) === 0 && sanitizeSleep(3) === 3 && sanitizeSleep(10) === 10, 'sleep keeps values inside 0 to 10')
+assert(sanitizeSleep(-1) === 0 && sanitizeSleep(12) === 10 && sanitizeSleep(7.2) === 7, 'sleep snaps into range')
 const bareSleep = sanitizeEntry({ date: '2026-11-22', isThesisDay: true, outputScore: 2, balanceScore: 1 })
 assert(bareSleep?.sleepHours === 7, 'legacy entry defaults sleep')
 

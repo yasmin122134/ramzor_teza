@@ -127,8 +127,8 @@ export function dayCountLabel(count: number): string {
   return `${count} ימים`
 }
 
-export const SLEEP_MIN = 4
-export const SLEEP_MAX = 9.5
+export const SLEEP_MIN = 0
+export const SLEEP_MAX = 10
 export const DEFAULT_SLEEP_HOURS = 7
 
 export const SLEEP_BRACKET_LABELS = {
@@ -143,6 +143,5 @@ export function formatHours(value: number): string {
 }
 
 export function formatSleep(hours: number): string {
-  const text = formatHours(hours)
-  return hours >= SLEEP_MAX ? `${text}+` : text
+  return formatHours(hours)
 }

@@ -38,7 +38,7 @@ create table if not exists public.daily_entries (
     and quality_idle_hours between 0 and 16
     and bad_idle_hours between 0 and 16
   ),
-  constraint daily_entries_sleep_check check (sleep_hours between 4 and 9.5)
+  constraint daily_entries_sleep_check check (sleep_hours between 0 and 10)
 );
 
 create table if not exists public.week_records (
@@ -75,4 +75,4 @@ grant select, insert, update, delete on public.week_records to authenticated;
 
 alter table public.daily_entries add column if not exists sleep_hours numeric not null default 7;
 alter table public.daily_entries drop constraint if exists daily_entries_sleep_check;
-alter table public.daily_entries add constraint daily_entries_sleep_check check (sleep_hours between 4 and 9.5);
+alter table public.daily_entries add constraint daily_entries_sleep_check check (sleep_hours between 0 and 10);

@@ -4,7 +4,7 @@ import { DAY_LETTERS, formatWeekRange, startOfWeek, toDateKey, weekDates } from 
 import { LIGHT_TEXT, environmentBadge, formatHours, formatSleep, thesisDayLabel } from '../lib/labels.ts'
 import { DEFAULT_TARGET_HOURS } from '../lib/mix.ts'
 import { cn } from '../lib/cn.ts'
-import { dailyLight, dailyTotal, summarizeStoredWeek } from '../lib/scoring.ts'
+import { dailyLight, dailyTotal, isCompleteThesisDay, summarizeStoredWeek } from '../lib/scoring.ts'
 import { useThesis } from '../store/ThesisStore.tsx'
 import type { DailyEntry } from '../types.ts'
 import { MixPills, StackedMix } from './MixBar.tsx'
@@ -244,6 +244,7 @@ function DayCard({
 }) {
   const total = entry ? dailyTotal(entry) : null
   const light = entry ? dailyLight(entry) : 'neutral'
+  const planned = Boolean(entry?.isThesisDay && !isCompleteThesisDay(entry))
   const goal = entry?.dailyGoal || (entry ? 'בלי יעד רשום' : isFuture ? 'עדיין לא הגיע' : 'טרם מולא · הקש לדיווח')
 
   return (
@@ -266,12 +267,21 @@ function DayCard({
               ללא תזה
             </span>
           ) : null}
+          {planned ? (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-950">
+              ממתין לסיכום
+            </span>
+          ) : null}
           {isToday ? <span className="text-[11px] font-medium text-teal-700">היום</span> : null}
         </span>
         {entry?.isThesisDay ? (
           <span className="mt-1 block">
-            <MixPills mix={entry.workMix} />
-            <StackedMix mix={entry.workMix} className="mt-1.5" />
+            {planned ? null : (
+              <>
+                <MixPills mix={entry.workMix} />
+                <StackedMix mix={entry.workMix} className="mt-1.5" />
+              </>
+            )}
             <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
               <span className="break-words text-stone-500">{environmentBadge(entry.workLocation, entry.socialContext)}</span>
               <span
@@ -297,7 +307,7 @@ function DayCard({
         ) : (
           <span className="flex size-11 items-center justify-center rounded-full bg-stone-100 text-sm text-stone-400">–</span>
         )}
-        <span className="sr-only">{entry ? LIGHT_TEXT[light] : 'אין דיווח'}</span>
+        <span className="sr-only">{planned ? 'ממתין לסיכום' : entry ? LIGHT_TEXT[light] : 'אין דיווח'}</span>
       </span>
     </button>
   )
