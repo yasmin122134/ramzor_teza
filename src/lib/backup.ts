@@ -22,6 +22,9 @@ const HEADERS = [
   'balanceTags',
   'notes',
   'nextStepBreadcrumb',
+  'workLocation',
+  'socialContext',
+  'sleepHours',
   'topAchievement',
   'bottleneck',
   'nextFirstStep',
@@ -82,6 +85,9 @@ export function toCsv(state: PersistedState): string {
         balanceTags: entry.balanceTags.join('|'),
         notes: entry.notes,
         nextStepBreadcrumb: entry.nextStepBreadcrumb,
+        workLocation: entry.workLocation,
+        socialContext: entry.socialContext,
+        sleepHours: entry.sleepHours,
         isSample: entry.isSample ? 'true' : 'false',
       }),
     )
@@ -238,6 +244,9 @@ function parseCsvBackup(text: string): BackupResult {
           .filter(Boolean),
         notes: pick(cells, 'notes'),
         nextStepBreadcrumb: pick(cells, 'nextStepBreadcrumb'),
+        workLocation: pick(cells, 'workLocation').trim(),
+        socialContext: pick(cells, 'socialContext').trim(),
+        sleepHours: parseNumber(pick(cells, 'sleepHours')),
         isSample: pick(cells, 'isSample').trim() === 'true',
       })
     } else if (type === 'week' || type === 'reflection') {

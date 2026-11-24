@@ -1,11 +1,37 @@
 import { isValidDateKey } from './dates.ts'
-import { BALANCE_TAG_SET } from './labels.ts'
+import {
+  BALANCE_TAG_SET,
+  DEFAULT_SLEEP_HOURS,
+  DEFAULT_SOCIAL_CONTEXT,
+  DEFAULT_WORK_LOCATION,
+  LOCATIONS,
+  SLEEP_MAX,
+  SLEEP_MIN,
+  SOCIAL_CONTEXTS,
+} from './labels.ts'
 import { DEFAULT_TARGET_HOURS, WORK_ORDER, mixSum, normalizeToHundred, zeroMix } from './mix.ts'
 import { seedState } from './sample.ts'
 import { hoursFromLegacyFocus } from './scoring.ts'
-import type { DailyEntry, PersistedState, WeekRecord, WorkMix } from '../types.ts'
+import type { DailyEntry, PersistedState, SocialContext, WeekRecord, WorkLocation, WorkMix } from '../types.ts'
 
 export const STORAGE_KEY = 'ramzor-teza-v1'
+const ACCOUNT_FLAG = 'ramzor-teza-account'
+
+export function hasAccount(): boolean {
+  try {
+    return localStorage.getItem(ACCOUNT_FLAG) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function rememberAccount(): void {
+  try {
+    localStorage.setItem(ACCOUNT_FLAG, '1')
+  } catch {
+    // The journal can still sync during this visit.
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -85,6 +111,23 @@ function hoursFromRaw(raw: Record<string, unknown>): Pick<DailyEntry, 'effective
   return { effectiveHours: 0, qualityIdleHours: 0, badIdleHours: 0 }
 }
 
+function readLocation(value: unknown): WorkLocation {
+  return LOCATIONS.some((item) => item.id === value) ? (value as WorkLocation) : DEFAULT_WORK_LOCATION
+}
+
+function readSocial(value: unknown): SocialContext {
+  return SOCIAL_CONTEXTS.some((item) => item.id === value) ? (value as SocialContext) : DEFAULT_SOCIAL_CONTEXT
+}
+
+export function sanitizeSleep(value: unknown): number {
+  const numeric = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+  if (typeof numeric !== 'number' || !Number.isFinite(numeric)) return DEFAULT_SLEEP_HOURS
+  const snapped = Math.round(numeric * 2) / 2
+  if (snapped < SLEEP_MIN) return SLEEP_MIN
+  if (snapped > SLEEP_MAX) return SLEEP_MAX
+  return snapped
+}
+
 export function sanitizeEntry(raw: unknown): DailyEntry | null {
   if (!isRecord(raw) || typeof raw.date !== 'string' || !isValidDateKey(raw.date)) return null
   const tags = Array.isArray(raw.balanceTags)
@@ -101,6 +144,9 @@ export function sanitizeEntry(raw: unknown): DailyEntry | null {
     balanceTags: tags,
     notes: typeof raw.notes === 'string' ? raw.notes.slice(0, 2000) : '',
     nextStepBreadcrumb: typeof raw.nextStepBreadcrumb === 'string' ? raw.nextStepBreadcrumb.slice(0, 180) : '',
+    workLocation: readLocation(raw.workLocation),
+    socialContext: readSocial(raw.socialContext),
+    sleepHours: sanitizeSleep(raw.sleepHours),
   }
   if (raw.isSample === true) entry.isSample = true
   return entry
@@ -175,7 +221,7 @@ export function sanitizeState(raw: unknown): PersistedState | null {
 export function loadState(): PersistedState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw === null) return seedState(new Date())
+    if (raw === null) return hasAccount() ? { version: 2, entries: {}, weeks: {} } : seedState(new Date())
     const parsed: unknown = JSON.parse(raw)
     return sanitizeState(parsed) ?? { version: 2, entries: {}, weeks: {} }
   } catch {

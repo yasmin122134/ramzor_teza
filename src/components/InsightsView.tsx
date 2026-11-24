@@ -1,10 +1,11 @@
 import { DAY_LETTERS, addDays, formatChartLabel, formatDayMonth, recentWeekStarts, toDateKey } from '../lib/dates.ts'
-import { LIGHT_TEXT, REST_BALANCE_HINT, WORK_TYPES, dayCountLabel, formatHours } from '../lib/labels.ts'
+import { LIGHT_TEXT, REST_BALANCE_HINT, SLEEP_BRACKET_LABELS, WORK_TYPES, dayCountLabel, formatHours, locationMeta, socialMeta } from '../lib/labels.ts'
 import { DEFAULT_TARGET_HOURS, WORK_ORDER } from '../lib/mix.ts'
 import { cn } from '../lib/cn.ts'
-import { dailyLight, isCompleteThesisDay, overallMix, summarizeStoredWeek, workoutHypothesis } from '../lib/scoring.ts'
+import { dailyLight, environmentInsights, isCompleteThesisDay, overallMix, sleepInsights, summarizeStoredWeek, workoutHypothesis } from '../lib/scoring.ts'
+import type { SleepInsight } from '../lib/scoring.ts'
 import { useThesis } from '../store/ThesisStore.tsx'
-import type { DailyEntry, Light } from '../types.ts'
+import type { DailyEntry, Light, SocialContext } from '../types.ts'
 import { StackedMix } from './MixBar.tsx'
 import { LIGHT_TONE } from './TrafficLight.tsx'
 
@@ -24,6 +25,8 @@ export function InsightsView({ weekStart, onOpenDay }: { weekStart: Date; onOpen
   const selectedId = toDateKey(weekStart)
   const mix = overallMix(all)
   const hypothesis = workoutHypothesis(all)
+  const environment = environmentInsights(all)
+  const sleep = sleepInsights(all)
   const hourMax = Math.max(1, ...scoreWeeks.map((week) => week.summary.scheduledHours))
 
   return (
@@ -153,6 +156,97 @@ export function InsightsView({ weekStart, onOpenDay }: { weekStart: Date; onOpen
         ) : null}
       </section>
 
+      <h2 className="px-1 pt-2 text-base font-semibold text-ink">סביבה ומיקוד</h2>
+
+      <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm">
+        <h3 className="text-base font-semibold text-ink">ביצועים לפי מיקום</h3>
+        <p className="mt-1 text-sm leading-6 text-stone-500">ממוצע הציון היומי ויחס היעילות הנקייה. המיקום לא משנה את הציון עצמו.</p>
+        <ul className="mt-4 space-y-4">
+          {environment.locations.map((item) => {
+            const meta = locationMeta(item.location)
+            const width = item.averageScore === null ? 0 : Math.max(6, (item.averageScore / 10) * 100)
+            return (
+              <li key={item.location}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="min-w-0 text-sm font-medium text-ink">{meta.full}</p>
+                  <p className="shrink-0 text-sm font-semibold text-ink">
+                    <bdi dir="ltr">{item.averageScore === null ? '—' : item.averageScore.toFixed(1)}</bdi>
+                  </p>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-stone-100">
+                  {item.averageScore !== null ? (
+                    <div className="h-full rounded-full bg-teal-600" style={{ width: `${width}%` }} />
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-stone-500">
+                  {item.count === 0 ? (
+                    'אין נתונים'
+                  ) : (
+                    <>
+                      יעילות{' '}
+                      <bdi dir="ltr">{item.cleanRatio === null ? '—' : `${Math.round(item.cleanRatio * 1000) / 10}%`}</bdi>
+                      {' · '}
+                      {dayCountLabel(item.count)}
+                    </>
+                  )}
+                </p>
+              </li>
+            )
+          })}
+        </ul>
+      </section>
+
+      <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm">
+        <h3 className="text-base font-semibold text-ink">אפקט החברה</h3>
+        <p className="mt-1 text-sm leading-6 text-stone-500">תוצר, איכות זמן ונבז לא טוב. המודגש הוא המקום עם הכי מעט הסחות.</p>
+        <div className="mt-4 space-y-2">
+          {environment.social.map((item) => {
+            const meta = socialMeta(item.context)
+            const calm = environment.calmest.includes(item.context)
+            return (
+              <div
+                key={item.context}
+                className={cn('rounded-2xl border p-3', calm ? 'border-teal-300 bg-teal-50' : 'border-stone-200 bg-stone-50')}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-ink">{meta.full}</p>
+                  <p className="text-xs text-stone-500">{item.count === 0 ? 'אין נתונים' : dayCountLabel(item.count)}</p>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-1 text-center">
+                  <MiniStat label="תפוקה" value={item.averageOutput === null ? '—' : item.averageOutput.toFixed(1)} />
+                  <MiniStat label="איכות זמן" value={item.averageQuality === null ? '—' : item.averageQuality.toFixed(1)} />
+                  <MiniStat label="נבז לא טוב" value={item.averageBadIdle === null ? '—' : formatHours(item.averageBadIdle)} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <p className="mt-3 text-sm leading-6 text-stone-700">{calmSentence(environment.calmest)}</p>
+      </section>
+
+      <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm">
+        <h3 className="text-base font-semibold text-ink">השפעת השינה</h3>
+        <p className="mt-1 text-sm leading-6 text-stone-500">ציון יומי, שעות אפקטיביות ונבז לא טוב לפי שעות השינה בלילה שלפני.</p>
+        <div className="mt-4 space-y-2">
+          {sleep.map((item) => (
+            <div key={item.bracket} className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium text-ink">{SLEEP_BRACKET_LABELS[item.bracket]}</p>
+                <p className="text-xs text-stone-500">{item.count === 0 ? 'אין נתונים' : dayCountLabel(item.count)}</p>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1 text-center">
+                <MiniStat label="ציון" value={item.averageScore === null ? '—' : item.averageScore.toFixed(1)} />
+                <MiniStat label="אפקטיבי" value={item.averageEffective === null ? '—' : formatHours(item.averageEffective)} />
+                <MiniStat label="נבז לא טוב" value={item.averageBadIdle === null ? '—' : formatHours(item.averageBadIdle)} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-sm leading-6 text-stone-700">
+          <SleepSentence rows={sleep} />
+        </p>
+      </section>
+
       <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm">
         <h3 className="text-base font-semibold text-ink">השערת אימון</h3>
         <p className="mt-1 text-sm leading-6 text-stone-500">ממוצע תוצר ואיכות זמן בימי אימון מול ימים ללא אימון.</p>
@@ -223,6 +317,53 @@ function Legend({ swatch, label }: { swatch: string; label: string }) {
       <span className={cn('size-2.5 rounded-[3px]', swatch)} />
       {label}
     </span>
+  )
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] text-stone-500">{label}</p>
+      <p className="text-sm font-semibold text-ink">
+        <bdi dir="ltr">{value}</bdi>
+      </p>
+    </div>
+  )
+}
+
+function calmSentence(calmest: SocialContext[]): string {
+  if (calmest.length === 0) return 'כדי להשוות, צריך לפחות יום תזה אחד עם שעות.'
+  const names = calmest.map((context) => socialMeta(context).pill)
+  if (names.length === 1) return `הכי פחות נבז לא טוב: ${names[0]}.`
+  return `הכי פחות נבז לא טוב: ${names.join(' ו')}.`
+}
+
+function SleepSentence({ rows }: { rows: SleepInsight[] }) {
+  const low = rows.find((item) => item.bracket === 'under6')
+  const high = rows.find((item) => item.bracket === 'rested')
+  if (!low?.count || !high?.count || low.averageScore === null || high.averageScore === null) {
+    return <>כדי לראות את הקשר, צריך ימי תזה גם עם פחות מ-6 שעות שינה וגם עם 7.5+.</>
+  }
+  const lowScore = low.averageScore.toFixed(1)
+  const highScore = high.averageScore.toFixed(1)
+  if (high.averageScore > low.averageScore) {
+    return (
+      <>
+        בימים עם 7.5+ שעות שינה הציון הממוצע <bdi dir="ltr">{highScore}</bdi>, לעומת <bdi dir="ltr">{lowScore}</bdi> בימים עם פחות מ-6.
+      </>
+    )
+  }
+  if (low.averageScore > high.averageScore) {
+    return (
+      <>
+        בימים עם פחות מ-6 שעות שינה הציון הממוצע <bdi dir="ltr">{lowScore}</bdi>, לעומת <bdi dir="ltr">{highScore}</bdi> בימים עם 7.5+.
+      </>
+    )
+  }
+  return (
+    <>
+      הציון הממוצע <bdi dir="ltr">{highScore}</bdi> זהה בימים עם שינה קצרה ובימים עם 7.5+ שעות.
+    </>
   )
 }
 

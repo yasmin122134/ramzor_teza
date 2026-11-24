@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Settings } from 'lucide-react'
+import { cn } from './lib/cn.ts'
 import { BottomNav } from './components/BottomNav.tsx'
 import type { AppTab } from './components/BottomNav.tsx'
 import { DaySheet } from './components/DaySheet.tsx'
@@ -19,7 +20,17 @@ export function App() {
 }
 
 function Shell() {
-  const { sampleCount } = useThesis()
+  const { sampleCount, cloudMode } = useThesis()
+  const statusLine =
+    cloudMode === 'synced'
+      ? 'מסונכרן לענן'
+      : cloudMode === 'syncing'
+        ? 'שומר בענן'
+        : cloudMode === 'error'
+          ? 'נשמר במכשיר, הענן לא עודכן'
+          : cloudMode === 'signed-out'
+            ? 'היומן במכשיר · כניסה בהגדרות'
+            : 'אפקטיביות, תפוקה וקיימות'
   const [tab, setTab] = useState<AppTab>('week')
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [openDate, setOpenDate] = useState<string | null>(null)
@@ -31,7 +42,7 @@ function Shell() {
         <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold tracking-tight">רמזור תזה</h1>
-            <p className="text-xs text-stone-500">אפקטיביות, תפוקה וקיימות</p>
+            <p className={cn('text-xs', cloudMode === 'error' ? 'text-rose-700' : 'text-stone-500')}>{statusLine}</p>
           </div>
           <button
             type="button"

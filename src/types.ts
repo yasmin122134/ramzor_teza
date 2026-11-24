@@ -4,6 +4,10 @@ export type WorkMix = Record<WorkType, number>
 
 export type Light = 'green' | 'yellow' | 'red' | 'neutral'
 
+export type WorkLocation = 'matlam_my_room' | 'lab' | 'other_room' | 'batza' | 'home_other'
+
+export type SocialContext = 'alone' | 'body_doubling' | 'collaborative'
+
 export interface DailyEntry {
   date: string
   isThesisDay: boolean
@@ -17,6 +21,9 @@ export interface DailyEntry {
   balanceTags: string[]
   notes: string
   nextStepBreadcrumb: string
+  workLocation: WorkLocation
+  socialContext: SocialContext
+  sleepHours: number
   isSample?: boolean
 }
 
@@ -34,7 +41,7 @@ export interface PersistedState {
   weeks: Record<string, WeekRecord>
 }
 
-export type FlagId = 'padding' | 'passive' | 'burnout' | 'bottleneck' | 'writing'
+export type FlagId = 'padding' | 'passive' | 'burnout' | 'bottleneck' | 'writing' | 'sleep'
 
 export interface RedFlag {
   id: FlagId
@@ -72,4 +79,7 @@ export interface DraftEntry {
   balanceTags: string[]
   notes: string
   nextStepBreadcrumb: string
+  workLocation: WorkLocation
+  socialContext: SocialContext
+  sleepHours: number
 }

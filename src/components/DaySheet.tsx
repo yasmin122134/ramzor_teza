@@ -1,7 +1,21 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { FULL_DAYS, formatDayMonth, parseDateKey, toDateKey } from '../lib/dates.ts'
-import { BALANCE_OPTIONS, BALANCE_TAGS, OUTPUT_CAPTION, TIME_BUCKETS, formatHours } from '../lib/labels.ts'
+import {
+  BALANCE_OPTIONS,
+  BALANCE_TAGS,
+  DEFAULT_SLEEP_HOURS,
+  DEFAULT_SOCIAL_CONTEXT,
+  DEFAULT_WORK_LOCATION,
+  LOCATIONS,
+  OUTPUT_CAPTION,
+  SLEEP_MAX,
+  SLEEP_MIN,
+  SOCIAL_CONTEXTS,
+  TIME_BUCKETS,
+  formatHours,
+  formatSleep,
+} from '../lib/labels.ts'
 import { defaultMix } from '../lib/mix.ts'
 import { cn } from '../lib/cn.ts'
 import { lightFromTotal, timeQualityScore } from '../lib/scoring.ts'
@@ -45,8 +59,10 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
       balanceTags: draft.balanceTags,
       notes: draft.notes.trim(),
       nextStepBreadcrumb: draft.nextStepBreadcrumb.trim(),
+      workLocation: draft.workLocation,
+      socialContext: draft.socialContext,
+      sleepHours: draft.sleepHours,
     }
-    if (existing?.isSample) saved.isSample = true
     saveEntry(saved)
     onClose()
   }
@@ -96,6 +112,51 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
                 />
               </label>
 
+              <fieldset>
+                <legend className="text-sm font-medium text-stone-800">סביבת עבודה</legend>
+                <p className="mt-1 mb-3 text-xs leading-5 text-stone-500">לא נכנס לציון. רק להשוואה בתובנות.</p>
+                <p className="mb-2 text-sm font-medium text-stone-700">מיקום</p>
+                <div className="flex flex-wrap gap-2">
+                  {LOCATIONS.map((location) => {
+                    const selected = draft.workLocation === location.id
+                    return (
+                      <button
+                        key={location.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => update({ workLocation: location.id })}
+                        className={cn(
+                          'inline-flex min-h-11 max-w-full items-center rounded-full border px-3 text-sm leading-5 font-medium',
+                          selected ? 'border-teal-800 bg-teal-800 text-white' : 'border-stone-200 bg-white text-stone-800',
+                        )}
+                      >
+                        {location.full}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-4 mb-2 text-sm font-medium text-stone-700">חברה</p>
+                <div className="flex flex-wrap gap-2">
+                  {SOCIAL_CONTEXTS.map((context) => {
+                    const selected = draft.socialContext === context.id
+                    return (
+                      <button
+                        key={context.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => update({ socialContext: context.id })}
+                        className={cn(
+                          'inline-flex min-h-11 max-w-full items-center rounded-full border px-3 text-sm leading-5 font-medium',
+                          selected ? 'border-teal-800 bg-teal-800 text-white' : 'border-stone-200 bg-white text-stone-800',
+                        )}
+                      >
+                        {context.pill}
+                      </button>
+                    )
+                  })}
+                </div>
+              </fieldset>
+
               <WorkMixEditor mix={draft.workMix} onChange={(workMix) => update({ workMix })} />
 
               <ScorePicker
@@ -133,6 +194,39 @@ export function DaySheet({ date, onClose }: { date: string; onClose: () => void 
                     </bdi>
                   </p>
                 </div>
+              </fieldset>
+
+              <fieldset>
+                <legend className="text-sm font-medium text-stone-800">שעות שינה בלילה הקודם</legend>
+                <div className="mt-2 flex items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2">
+                  <p className="min-w-0 flex-1 text-sm text-stone-600">בקפיצות של חצי שעה, מ־4 עד 9.5+</p>
+                  <div dir="ltr" className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="הקטנת שעות שינה"
+                      disabled={draft.sleepHours <= SLEEP_MIN}
+                      onClick={() => update({ sleepHours: Math.max(SLEEP_MIN, Math.round((draft.sleepHours - 0.5) * 2) / 2) })}
+                      className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                    <span className="w-12 text-center text-sm font-semibold text-ink">{formatSleep(draft.sleepHours)}</span>
+                    <button
+                      type="button"
+                      aria-label="הגדלת שעות שינה"
+                      disabled={draft.sleepHours >= SLEEP_MAX}
+                      onClick={() => update({ sleepHours: Math.min(SLEEP_MAX, Math.round((draft.sleepHours + 0.5) * 2) / 2) })}
+                      className="size-11 rounded-xl border border-stone-200 text-lg text-stone-800 disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                {draft.sleepHours < 6 ? (
+                  <p className="mt-2 rounded-2xl bg-amber-50 px-3 py-3 text-sm leading-6 text-amber-950">
+                    לילה קצר — כדאי להתמקד במשימות תחזוקה/בדיקות ולהימנע מהחלטות ארכיטקטורה כבדות
+                  </p>
+                ) : null}
               </fieldset>
 
               <fieldset>
@@ -390,6 +484,9 @@ function draftFromEntry(entry: DailyEntry | undefined): DraftEntry {
       balanceTags: [],
       notes: '',
       nextStepBreadcrumb: '',
+      workLocation: DEFAULT_WORK_LOCATION,
+      socialContext: DEFAULT_SOCIAL_CONTEXT,
+      sleepHours: DEFAULT_SLEEP_HOURS,
     }
   }
   return {
@@ -404,6 +501,9 @@ function draftFromEntry(entry: DailyEntry | undefined): DraftEntry {
     balanceTags: [...entry.balanceTags],
     notes: entry.notes,
     nextStepBreadcrumb: entry.nextStepBreadcrumb,
+    workLocation: entry.workLocation,
+    socialContext: entry.socialContext,
+    sleepHours: entry.sleepHours,
   }
 }
 

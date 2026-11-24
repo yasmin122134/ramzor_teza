@@ -1,6 +1,6 @@
 import { addDays, startOfWeek, toDateKey, weekDates } from './dates.ts'
 import { DEFAULT_TARGET_HOURS, weightedMix, zeroMix } from './mix.ts'
-import type { DailyEntry, Light, RedFlag, WeeklySummary, WorkMix } from '../types.ts'
+import type { DailyEntry, Light, RedFlag, SocialContext, WeeklySummary, WorkLocation, WorkMix } from '../types.ts'
 
 export const FLAG_MESSAGES = {
   padding: '⚠️ ניפוח שעות (המון שעות בלו״ז עם מעט תפוקה)',
@@ -8,6 +8,7 @@ export const FLAG_MESSAGES = {
   burnout: '⚠️ סכנת שחיקה (0 התאוששות)',
   bottleneck: '⚠️ תקיעות טכנית (כדאי להתייעץ עם המנחה)',
   writing: '⚠️ הימנעות מכתיבה (3 שבועות ללא ניסוח טקסט חדש)',
+  sleep: '⚠️ חוב שינה מצטבר (3+ ימים עם פחות מ-6 שעות שינה)',
 } as const
 
 export function round1FromSum(sum: number, count: number): number {
@@ -114,6 +115,9 @@ export function summarizeWeek(
   if (options?.writingAvoidance) {
     flags.push({ id: 'writing', message: FLAG_MESSAGES.writing })
   }
+  if (thesis.filter((entry) => entry.sleepHours < 6).length >= 3) {
+    flags.push({ id: 'sleep', message: FLAG_MESSAGES.sleep })
+  }
 
   let light: Light
   if (average < 5 || flags.length > 0) light = 'red'
@@ -214,4 +218,109 @@ export function workoutHypothesis(entries: DailyEntry[]): WorkoutHypothesis {
 export function overallMix(entries: DailyEntry[]): WorkMix {
   const thesis = entries.filter(isCompleteThesisDay)
   return weightedMix(thesis.map((entry) => ({ mix: entry.workMix, weight: entry.effectiveHours }))).display
+}
+
+export function cleanEfficiencyRatio(effectiveHours: number, badIdleHours: number): number | null {
+  const denominator = effectiveHours + badIdleHours
+  if (denominator <= 0) return null
+  return effectiveHours / denominator
+}
+
+export interface LocationInsight {
+  location: WorkLocation
+  count: number
+  averageScore: number | null
+  cleanRatio: number | null
+}
+
+export interface SocialInsight {
+  context: SocialContext
+  count: number
+  averageQuality: number | null
+  averageBadIdle: number | null
+  averageOutput: number | null
+}
+
+const LOCATION_ORDER: WorkLocation[] = ['matlam_my_room', 'lab', 'other_room', 'batza', 'home_other']
+const SOCIAL_ORDER: SocialContext[] = ['alone', 'body_doubling', 'collaborative']
+
+export function environmentInsights(entries: DailyEntry[]): {
+  locations: LocationInsight[]
+  social: SocialInsight[]
+  calmest: SocialContext[]
+} {
+  const thesis = entries.filter(isCompleteThesisDay)
+  const locations = LOCATION_ORDER.map((location) => summarizePlace(thesis.filter((entry) => entry.workLocation === location), location))
+  locations.sort((a, b) => {
+    if (a.averageScore === null && b.averageScore === null) return LOCATION_ORDER.indexOf(a.location) - LOCATION_ORDER.indexOf(b.location)
+    if (a.averageScore === null) return 1
+    if (b.averageScore === null) return -1
+    return b.averageScore - a.averageScore || LOCATION_ORDER.indexOf(a.location) - LOCATION_ORDER.indexOf(b.location)
+  })
+  const social = SOCIAL_ORDER.map((context) => summarizeCompany(thesis.filter((entry) => entry.socialContext === context), context))
+  const ranked = social.filter((item) => item.count > 0 && item.averageBadIdle !== null)
+  const lowest = ranked.reduce<number | null>((best, item) => (best === null || (item.averageBadIdle ?? 0) < best ? item.averageBadIdle : best), null)
+  const calmest = ranked.filter((item) => item.averageBadIdle === lowest).map((item) => item.context)
+  return { locations, social, calmest }
+}
+
+function summarizePlace(list: Array<DailyEntry & { outputScore: number; balanceScore: number }>, location: WorkLocation): LocationInsight {
+  if (list.length === 0) return { location, count: 0, averageScore: null, cleanRatio: null }
+  const ratios = list
+    .map((entry) => cleanEfficiencyRatio(entry.effectiveHours, entry.badIdleHours))
+    .filter((ratio): ratio is number => ratio !== null)
+  return {
+    location,
+    count: list.length,
+    averageScore: round1FromSum(list.reduce((sum, entry) => sum + (dailyTotal(entry) ?? 0), 0), list.length),
+    cleanRatio: ratios.length === 0 ? null : ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length,
+  }
+}
+
+function summarizeCompany(list: Array<DailyEntry & { outputScore: number; balanceScore: number }>, context: SocialContext): SocialInsight {
+  if (list.length === 0) return { context, count: 0, averageQuality: null, averageBadIdle: null, averageOutput: null }
+  return {
+    context,
+    count: list.length,
+    averageQuality: round1FromSum(
+      list.reduce((sum, entry) => sum + timeQualityScore(entry.effectiveHours, entry.badIdleHours), 0),
+      list.length,
+    ),
+    averageBadIdle: round1FromSum(list.reduce((sum, entry) => sum + entry.badIdleHours, 0), list.length),
+    averageOutput: round1FromSum(list.reduce((sum, entry) => sum + entry.outputScore, 0), list.length),
+  }
+}
+
+export type SleepBracket = 'under6' | 'mid' | 'rested'
+
+export interface SleepInsight {
+  bracket: SleepBracket
+  count: number
+  averageScore: number | null
+  averageEffective: number | null
+  averageBadIdle: number | null
+}
+
+const SLEEP_ORDER: SleepBracket[] = ['under6', 'mid', 'rested']
+
+export function sleepBracket(hours: number): SleepBracket {
+  if (hours < 6) return 'under6'
+  if (hours >= 7.5) return 'rested'
+  return 'mid'
+}
+
+export function sleepInsights(entries: DailyEntry[]): SleepInsight[] {
+  const thesis = entries.filter(isCompleteThesisDay)
+  return SLEEP_ORDER.map((bracket) => summarizeSleep(thesis.filter((entry) => sleepBracket(entry.sleepHours) === bracket), bracket))
+}
+
+function summarizeSleep(list: Array<DailyEntry & { outputScore: number; balanceScore: number }>, bracket: SleepBracket): SleepInsight {
+  if (list.length === 0) return { bracket, count: 0, averageScore: null, averageEffective: null, averageBadIdle: null }
+  return {
+    bracket,
+    count: list.length,
+    averageScore: round1FromSum(list.reduce((sum, entry) => sum + (dailyTotal(entry) ?? 0), 0), list.length),
+    averageEffective: round1FromSum(list.reduce((sum, entry) => sum + entry.effectiveHours, 0), list.length),
+    averageBadIdle: round1FromSum(list.reduce((sum, entry) => sum + entry.badIdleHours, 0), list.length),
+  }
 }

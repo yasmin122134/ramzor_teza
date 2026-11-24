@@ -1,4 +1,38 @@
-import type { Light, WorkType } from '../types.ts'
+import type { Light, SocialContext, WorkLocation, WorkType } from '../types.ts'
+
+export const DEFAULT_WORK_LOCATION: WorkLocation = 'home_other'
+
+export const DEFAULT_SOCIAL_CONTEXT: SocialContext = 'alone'
+
+export const LOCATIONS: { id: WorkLocation; full: string; short: string }[] = [
+  { id: 'matlam_my_room', full: 'מתלם - החדר שלי', short: 'מתלם' },
+  { id: 'lab', full: 'מעבדה', short: 'מעבדה' },
+  { id: 'other_room', full: 'חדר של מישהו אחר', short: 'חדר אחר' },
+  { id: 'batza', full: 'בצה', short: 'בצה' },
+  { id: 'home_other', full: 'בית / אחר', short: 'בית' },
+]
+
+export const SOCIAL_CONTEXTS: { id: SocialContext; full: string; pill: string; short: string }[] = [
+  { id: 'alone', full: 'לבד', pill: 'לבד', short: 'לבד' },
+  { id: 'body_doubling', full: 'מישהו לידי (במקביל)', pill: 'מישהו לידי', short: 'מישהו לידי' },
+  { id: 'collaborative', full: 'עבודה משותפת / דיונים', pill: 'עבודה משותפת', short: 'עבודה משותפת' },
+]
+
+export function locationMeta(id: WorkLocation) {
+  const meta = LOCATIONS.find((item) => item.id === id)
+  if (!meta) throw new Error(`Unknown location ${id}`)
+  return meta
+}
+
+export function socialMeta(id: SocialContext) {
+  const meta = SOCIAL_CONTEXTS.find((item) => item.id === id)
+  if (!meta) throw new Error(`Unknown social context ${id}`)
+  return meta
+}
+
+export function environmentBadge(location: WorkLocation, social: SocialContext): string {
+  return `📍 ${locationMeta(location).short} • ${socialMeta(social).short}`
+}
 
 export const BALANCE_TAGS = ['ריצה', 'שחייה', 'כוח', 'אקרובטיקה', 'הפסקה בחוץ', 'שינה טובה'] as const
 
@@ -93,7 +127,22 @@ export function dayCountLabel(count: number): string {
   return `${count} ימים`
 }
 
+export const SLEEP_MIN = 4
+export const SLEEP_MAX = 9.5
+export const DEFAULT_SLEEP_HOURS = 7
+
+export const SLEEP_BRACKET_LABELS = {
+  under6: 'פחות מ-6 שע׳',
+  mid: '6–7 שע׳',
+  rested: '7.5+ שע׳',
+} as const
+
 export function formatHours(value: number): string {
   const rounded = Math.round(value * 2) / 2
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
+export function formatSleep(hours: number): string {
+  const text = formatHours(hours)
+  return hours >= SLEEP_MAX ? `${text}+` : text
 }

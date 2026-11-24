@@ -4,13 +4,15 @@ import { buildSampleEntries } from '../src/lib/sample.ts'
 import {
   FLAG_MESSAGES,
   dailyTotal,
+  environmentInsights,
   hasWritingAvoidance,
+  sleepInsights,
   summarizeStoredWeek,
   summarizeWeek,
   timeQualityScore,
   workoutHypothesis,
 } from '../src/lib/scoring.ts'
-import { sanitizeEntry, sanitizeState } from '../src/lib/storage.ts'
+import { sanitizeEntry, sanitizeSleep, sanitizeState } from '../src/lib/storage.ts'
 import type { DailyEntry, WorkMix } from '../src/types.ts'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -34,6 +36,9 @@ function day(partial: Partial<DailyEntry> & Pick<DailyEntry, 'date'>): DailyEntr
     balanceTags: [],
     notes: '',
     nextStepBreadcrumb: '',
+    workLocation: 'home_other',
+    socialContext: 'alone',
+    sleepHours: 7,
     ...partial,
   }
 }
@@ -300,6 +305,9 @@ const state = {
       notes: 'שורה אחת, עם "ציטוט"\nושורה שנייה',
       balanceTags: ['ריצה', 'שינה טובה'],
       nextStepBreadcrumb: 'לפתוח את הקובץ',
+      workLocation: 'lab',
+      socialContext: 'collaborative',
+      sleepHours: 5.5,
       isSample: true,
       workMix: mix({ research: 80, maintenance: 20 }),
     }),
@@ -325,6 +333,8 @@ if (csv.ok) {
   assert(restored?.balanceTags.join('|') === 'ריצה|שינה טובה', 'csv keeps tags')
   assert(restored?.workMix.research === 80 && restored.workMix.maintenance === 20, 'csv keeps the mix')
   assert(restored?.nextStepBreadcrumb === 'לפתוח את הקובץ', 'csv keeps the breadcrumb')
+  assert(restored?.workLocation === 'lab' && restored.socialContext === 'collaborative', 'csv keeps the environment')
+  assert(restored?.sleepHours === 5.5, 'csv keeps sleep')
   assert(restored?.effectiveHours === 4, 'csv keeps hours')
   assert(csv.state.weeks['2026-11-22']?.targetWeeklyHours === 22, 'csv keeps the weekly target')
   assert(csv.state.weeks['2026-11-22']?.bottleneck === 'נתקעתי, כי חסר נתון', 'csv keeps the weekly note')
@@ -368,5 +378,88 @@ const oldJson = parseBackup(
 )
 assert(oldJson.ok && oldJson.state.entries['2026-11-22']?.workMix.maintenance === 100, 'old json maintenance migrates')
 assert(oldJson.ok && oldJson.state.entries['2026-11-22']?.effectiveHours === 1, 'old json focus 1 migrates')
+
+assert(samples['2026-11-22']?.workLocation === 'home_other' && samples['2026-11-22']?.socialContext === 'alone', 'sunday context')
+assert(samples['2026-11-23']?.workLocation === 'matlam_my_room' && samples['2026-11-23']?.socialContext === 'body_doubling', 'monday context')
+assert(samples['2026-11-24']?.workLocation === 'lab' && samples['2026-11-24']?.socialContext === 'collaborative', 'tuesday context')
+
+const moved = day({ date: '2026-11-22', workLocation: 'batza', socialContext: 'alone' })
+const stayed = day({ date: '2026-11-22', workLocation: 'lab', socialContext: 'collaborative' })
+assert(dailyTotal(moved) === dailyTotal(stayed), 'location does not change the daily total')
+assert(summarizeWeek([moved]).average === summarizeWeek([stayed]).average, 'location does not change the weekly score')
+
+const places = environmentInsights(sampleList)
+assert(places.locations[0]?.location === 'lab' && places.locations[0].averageScore === 10, 'lab ranks first')
+assert(places.locations.find((item) => item.location === 'matlam_my_room')?.averageScore === 6, 'matlam score')
+assert(places.locations.find((item) => item.location === 'home_other')?.averageScore === 3, 'home score')
+assert(places.locations.find((item) => item.location === 'batza')?.count === 0, 'unused locations stay empty')
+const homeRatio = places.locations.find((item) => item.location === 'home_other')?.cleanRatio ?? 0
+assert(Math.round(homeRatio * 1000) / 10 === 42.9, `home clean ratio ${homeRatio}`)
+assert(places.calmest.join() === 'collaborative', 'collaborative has the least bad idle')
+assert(places.social.find((item) => item.context === 'alone')?.averageBadIdle === 2, 'alone bad idle')
+assert(places.social.find((item) => item.context === 'body_doubling')?.averageQuality === 3, 'body doubling quality')
+
+const ignoredPlace = environmentInsights([
+  day({ date: '2026-11-22', isThesisDay: false, workLocation: 'lab', socialContext: 'collaborative', outputScore: 4, balanceScore: 2 }),
+])
+assert(ignoredPlace.locations.every((item) => item.count === 0) && ignoredPlace.calmest.length === 0, 'non-thesis days stay out of environment stats')
+
+const bare = sanitizeEntry({ date: '2026-11-22', isThesisDay: true, outputScore: 2, balanceScore: 1, workType: 'research' })
+assert(bare?.workLocation === 'home_other' && bare.socialContext === 'alone', 'missing environment falls back')
+const keptPlace = sanitizeEntry({
+  date: '2026-11-23',
+  isThesisDay: true,
+  workLocation: 'other_room',
+  socialContext: 'body_doubling',
+  outputScore: 3,
+  balanceScore: 1,
+})
+assert(keptPlace?.workLocation === 'other_room' && keptPlace.socialContext === 'body_doubling', 'known environment is kept')
+const junkPlace = sanitizeEntry({ date: '2026-11-24', isThesisDay: true, workLocation: 'office', socialContext: 'crowd' })
+assert(junkPlace?.workLocation === 'home_other' && junkPlace.socialContext === 'alone', 'unknown environment falls back')
+
+assert(samples['2026-11-22']?.sleepHours === 5.5, 'sunday sleep')
+assert(samples['2026-11-23']?.sleepHours === 6.5, 'monday sleep')
+assert(samples['2026-11-24']?.sleepHours === 8, 'tuesday sleep')
+
+const rested = day({ date: '2026-11-22', sleepHours: 8 })
+const shortNight = day({ date: '2026-11-22', sleepHours: 5.5 })
+assert(dailyTotal(rested) === dailyTotal(shortNight), 'sleep does not change the daily total')
+
+const shortWeek = ['2026-11-22', '2026-11-23', '2026-11-24'].map((date) =>
+  day({ date, sleepHours: 5.5, effectiveHours: 8, qualityIdleHours: 0, badIdleHours: 0 }),
+)
+const debt = summarizeWeek(shortWeek)
+assert(debt.flags.some((flag) => flag.message === FLAG_MESSAGES.sleep), 'three short nights raise sleep debt')
+assert(debt.light === 'red', 'sleep debt turns the week red')
+assert(debt.average === 10, 'sleep debt leaves the average intact')
+const twoShort = summarizeWeek(shortWeek.slice(0, 2))
+assert(!twoShort.flags.some((flag) => flag.id === 'sleep') && twoShort.light === 'green', 'two short nights stay under the flag')
+const withRestDay = summarizeWeek([
+  ...shortWeek.slice(0, 2),
+  day({ date: '2026-11-24', isThesisDay: false, sleepHours: 4, outputScore: 4, balanceScore: 2 }),
+])
+assert(!withRestDay.flags.some((flag) => flag.id === 'sleep'), 'a non-thesis night stays out of the flag')
+
+const slept = sleepInsights(sampleList)
+const under = slept.find((item) => item.bracket === 'under6')
+const mid = slept.find((item) => item.bracket === 'mid')
+const high = slept.find((item) => item.bracket === 'rested')
+assert(under?.averageScore === 3 && under.averageEffective === 1.5 && under.averageBadIdle === 2, 'short sleep stats')
+assert(mid?.averageScore === 6 && mid.averageEffective === 2.5 && mid.averageBadIdle === 0.5, 'mid sleep stats')
+assert(high?.averageScore === 10 && high.averageEffective === 4 && high.averageBadIdle === 0, 'rested sleep stats')
+const ignoredSleep = sleepInsights([
+  day({ date: '2026-11-22', isThesisDay: false, sleepHours: 4, outputScore: 4, balanceScore: 2 }),
+])
+assert(ignoredSleep.every((item) => item.count === 0), 'non-thesis days stay out of sleep stats')
+
+assert(sanitizeSleep(undefined) === 7, 'missing sleep defaults to 7')
+assert(sanitizeSleep('5.5') === 5.5, 'sleep text is kept')
+assert(sanitizeSleep(3) === 4 && sanitizeSleep(12) === 9.5 && sanitizeSleep(7.2) === 7, 'sleep snaps into range')
+const bareSleep = sanitizeEntry({ date: '2026-11-22', isThesisDay: true, outputScore: 2, balanceScore: 1 })
+assert(bareSleep?.sleepHours === 7, 'legacy entry defaults sleep')
+
+const oldSleepCsv = parseBackup(['type,date,isThesisDay,outputScore,balanceScore', 'entry,2026-11-22,true,2,1'].join('\n'))
+assert(oldSleepCsv.ok && oldSleepCsv.state.entries['2026-11-22']?.sleepHours === 7, 'old csv defaults sleep')
 
 console.log('scoring and backup checks passed')

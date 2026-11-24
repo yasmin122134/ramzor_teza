@@ -1,5 +1,5 @@
 import { addDays, startOfWeek, toDateKey } from './dates.ts'
-import type { DailyEntry, PersistedState, WorkMix } from '../types.ts'
+import type { DailyEntry, PersistedState, SocialContext, WorkLocation, WorkMix } from '../types.ts'
 
 function entry(
   date: string,
@@ -14,6 +14,9 @@ function entry(
     balanceTags: string[]
     notes: string
     nextStepBreadcrumb: string
+    workLocation: WorkLocation
+    socialContext: SocialContext
+    sleepHours: number
   },
 ): DailyEntry {
   return {
@@ -42,6 +45,9 @@ export function buildSampleEntries(today: Date): Record<string, DailyEntry> {
       balanceTags: [],
       notes: 'היום נמרח על סידור תיקיות. לא נגעתי בכתיבה.',
       nextStepBreadcrumb: 'לפתוח את קובץ הביבליוגרפיה ולסמן שלושה מקורות חסרים',
+      workLocation: 'home_other',
+      socialContext: 'alone',
+      sleepHours: 5.5,
     }),
     [mon]: entry(mon, {
       workMix: { builder: 0, drafting: 0, research: 80, maintenance: 20 },
@@ -54,6 +60,9 @@ export function buildSampleEntries(today: Date): Record<string, DailyEntry> {
       balanceTags: ['הפסקה בחוץ'],
       notes: 'סיימתי מאמר אחד וסימנתי ציטוטים לשני.',
       nextStepBreadcrumb: 'לסכם את המאמר השני בפסקה אחת',
+      workLocation: 'matlam_my_room',
+      socialContext: 'body_doubling',
+      sleepHours: 6.5,
     }),
     [tue]: entry(tue, {
       workMix: { builder: 70, drafting: 20, research: 10, maintenance: 0 },
@@ -66,6 +75,9 @@ export function buildSampleEntries(today: Date): Record<string, DailyEntry> {
       balanceTags: ['שחייה', 'שינה טובה'],
       notes: 'התרשים סגור. נשאר לנסח את שלב גיוס המשתתפים.',
       nextStepBreadcrumb: 'לנסח את פסקת שיטת הגיוס מתחת לתרשים',
+      workLocation: 'lab',
+      socialContext: 'collaborative',
+      sleepHours: 8,
     }),
   }
 }

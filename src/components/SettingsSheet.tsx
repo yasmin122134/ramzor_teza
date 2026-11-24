@@ -6,7 +6,7 @@ import type { PersistedState } from '../types.ts'
 import { Sheet } from './Sheet.tsx'
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
-  const { entries, weeks, sampleCount, replaceAll, clearSamples } = useThesis()
+  const { entries, weeks, sampleCount, cloudEmail, replaceAll, clearSamples } = useThesis()
   const jsonRef = useRef<HTMLInputElement>(null)
   const csvRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -56,9 +56,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title="הגדרות" subtitle="גיבוי, שחזור ונתוני דוגמה" onClose={onClose}>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <p className="text-sm leading-6 text-stone-600">
-          הכל נשמר במכשיר הזה. כדאי לייצא עותק לפני ניקוי הדפדפן. אפשר להתקין את רמזור תזה למסך הבית דרך תפריט השיתוף.
-        </p>
+        <CloudSection />
 
         <button type="button" onClick={exportJson} className={actionClass}>
           <Download className="size-5 shrink-0" aria-hidden="true" />
@@ -101,7 +99,9 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
 
         {pending ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm leading-6 font-medium text-amber-950">ייבוא יחליף את כל הנתונים השמורים במכשיר.</p>
+            <p className="text-sm leading-6 font-medium text-amber-950">
+              {cloudEmail ? 'ייבוא יחליף את היומן במכשיר ובחשבון.' : 'ייבוא יחליף את כל הנתונים השמורים במכשיר.'}
+            </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -164,6 +164,119 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </Sheet>
+  )
+}
+
+function CloudSection() {
+  const { cloudMode, cloudEmail, cloudNotice, sendSignInLink, signOut } = useThesis()
+  const [address, setAddress] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [leaving, setLeaving] = useState(false)
+
+  async function submit(event: { preventDefault: () => void }) {
+    event.preventDefault()
+    const email = address.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('המייל לא נראה תקין.')
+      setSentTo(null)
+      return
+    }
+    setSending(true)
+    setError(null)
+    try {
+      await sendSignInLink(email)
+      setSentTo(email)
+    } catch (caught) {
+      setSentTo(null)
+      setError(caught instanceof Error ? caught.message : 'לא הצלחנו לשלוח את הקישור. כדאי לנסות שוב.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-stone-200 bg-white p-3">
+      <h2 className="text-sm font-medium text-stone-800">חשבון בענן</h2>
+      {cloudMode === 'off' ? (
+        <p className="mt-1 text-sm leading-6 text-stone-600">
+          היומן נשמר במכשיר. חיבור Supabase עדיין לא הוגדר, אז אין עדיין חשבון לסנכרן אליו.
+        </p>
+      ) : null}
+      {cloudMode === 'checking' ? <p className="mt-1 text-sm leading-6 text-stone-600">מתחברים לחשבון…</p> : null}
+      {cloudMode === 'error' && !cloudEmail ? (
+        <p className="mt-1 text-sm leading-6 text-rose-800">{cloudNotice ?? 'לא הצלחנו להתחבר לענן.'}</p>
+      ) : null}
+      {cloudMode === 'signed-out' ? (
+        <form onSubmit={(event) => void submit(event)} className="mt-2 space-y-2">
+          <p className="text-sm leading-6 text-stone-600">
+            כניסה עם קישור למייל שומרת את היומן בחשבון, ומשם בשאר המכשירים. רשומות הדוגמה לא עולות.
+          </p>
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-stone-800">מייל</span>
+            <input
+              type="email"
+              dir="ltr"
+              autoComplete="email"
+              inputMode="email"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              className="h-12 w-full rounded-xl border border-stone-200 bg-white px-3 text-left text-base text-ink outline-none"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={sending}
+            className="h-12 w-full rounded-xl bg-teal-800 text-sm font-medium text-white disabled:opacity-60"
+          >
+            {sending ? 'שולחים קישור…' : 'שליחת קישור כניסה'}
+          </button>
+          {sentTo ? (
+            <p className="text-sm leading-6 text-emerald-900" aria-live="polite">
+              שלחנו קישור אל {sentTo}. פותחים אותו במכשיר הזה.
+            </p>
+          ) : null}
+          {error ? (
+            <p className="text-sm leading-6 text-rose-800" aria-live="polite">
+              {error}
+            </p>
+          ) : null}
+        </form>
+      ) : null}
+      {cloudEmail ? (
+        <div className="mt-2 space-y-2">
+          <p dir="ltr" className="truncate text-left text-sm text-stone-800">
+            {cloudEmail}
+          </p>
+          <p className="text-sm leading-6 text-stone-600">
+            {cloudMode === 'error'
+              ? cloudNotice
+              : cloudMode === 'syncing'
+                ? 'שומר בענן. עותק נשאר גם במכשיר.'
+                : 'היומן מסונכרן לחשבון ונשמר גם במכשיר. רשומות דוגמה לא עולות.'}
+          </p>
+          <button
+            type="button"
+            disabled={leaving}
+            onClick={() => {
+              setError(null)
+              setLeaving(true)
+              void signOut()
+                .catch(() => setError('לא הצלחנו לצאת. כדאי לנסות שוב.'))
+                .finally(() => setLeaving(false))
+            }}
+            className="h-12 w-full rounded-xl border border-stone-200 bg-white text-sm font-medium text-stone-800 disabled:opacity-60"
+          >
+            יציאה
+          </button>
+          {error ? <p className="text-sm leading-6 text-rose-800">{error}</p> : null}
+        </div>
+      ) : null}
+      <p className="mt-3 text-sm leading-6 text-stone-600">
+        אפשר לייצא עותק, וגם להתקין את רמזור תזה למסך הבית דרך תפריט השיתוף.
+      </p>
+    </section>
   )
 }
 

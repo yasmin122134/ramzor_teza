@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { DAY_LETTERS, formatWeekRange, startOfWeek, toDateKey, weekDates } from '../lib/dates.ts'
-import { LIGHT_TEXT, formatHours, thesisDayLabel } from '../lib/labels.ts'
+import { LIGHT_TEXT, environmentBadge, formatHours, formatSleep, thesisDayLabel } from '../lib/labels.ts'
 import { DEFAULT_TARGET_HOURS } from '../lib/mix.ts'
 import { cn } from '../lib/cn.ts'
 import { dailyLight, dailyTotal, summarizeStoredWeek } from '../lib/scoring.ts'
@@ -272,6 +272,19 @@ function DayCard({
           <span className="mt-1 block">
             <MixPills mix={entry.workMix} />
             <StackedMix mix={entry.workMix} className="mt-1.5" />
+            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
+              <span className="break-words text-stone-500">{environmentBadge(entry.workLocation, entry.socialContext)}</span>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5',
+                  entry.sleepHours < 6 ? 'bg-amber-100 font-medium text-amber-950' : 'text-stone-500',
+                )}
+              >
+                <span aria-hidden="true">😴</span>
+                <bdi dir="ltr">{formatSleep(entry.sleepHours)}</bdi>
+                <span>שע׳</span>
+              </span>
+            </span>
           </span>
         ) : null}
         <span className="mt-1 block truncate text-sm text-stone-600">{goal}</span>
